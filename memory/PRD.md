@@ -23,11 +23,17 @@ A "model council" of frontier models where a human is a member. Human and models
 - Backend pytest suite (8/8) + frontend E2E (100%) passing.
 
 ## Backlog
-- P1: Streaming token-by-token responses; auto-open Settings when key missing; export session (transcript + notes + verdict) as PDF/markdown.
-- P1: Model-to-model auto-debate mode (models respond to each other autonomously for N rounds).
-- P2: Auth/multi-user (JWT or Google), sharable session links, voice barge-in / live mic VAD, avatar video motion.
-- P2: Read `HTTP-Referer` from env in call_openrouter; per-session persona overrides.
+- P1: streaming token-by-token; auto-open Settings when key missing.
+- P2: auth/multi-user, sharable links, live mic VAD/barge-in.
+- P2: read HTTP-Referer from env; per-session persona overrides.
+
+## Differentiators shipped (beats market councils)
+- **Live spoken Zoom-style council** with distinct per-model voices + on-demand replay (beyond Karpathy's text-only LLM Council).
+- **Auto-debate**: models argue autonomously for N rounds (stoppable).
+- **Blind peer-review "Council Standings"**: anonymous cross-ranking → Borda score + most-convincing MVP (Karpathy-style, visualised).
+- **Synthesize answer (additive, Perplexity-style)**: same question fanned to all 5 models in parallel → blind review → a chosen Chairman merges into one authoritative answer. Separate button; does not affect the live council/debate flow.
+- **One-click PDF export** (transcript + Scribe notes + standings + verdict) via reportlab.
+- Dedicated always-on Scribe note-taker; assignable conclusion drafter; personas; editable model IDs.
 
 ## Next Tasks
-1. User adds their OpenRouter key in Settings to activate live council responses.
-2. Consider top-up of Universal Key balance (chat budget is 0; only TTS/STT active there).
+1. User adds their OpenRouter key in Settings to activate all live model flows.
