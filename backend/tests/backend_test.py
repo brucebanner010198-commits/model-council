@@ -21,9 +21,7 @@ except Exception:
 API = f"{BASE_URL}/api"
 
 
-@pytest.fixture(scope="module")
-def s():
-    return requests.Session()
+# `s` fixture (authenticated as user A) provided by conftest.py
 
 
 # ---------- Council ----------
@@ -267,7 +265,7 @@ def test_stt_accepts_small_mp3(s):
     assert r.status_code in (200, 400, 500), f"unexpected {r.status_code}: {r.text}"
 
 
-# CORS still works (allow_credentials=False)
+# CORS still works (auth-gated council; use authed session)
 def test_cors_council_ok(s):
     r = s.get(f"{API}/council", headers={"Origin": "https://example.com"})
     assert r.status_code == 200
@@ -279,20 +277,22 @@ def test_cors_council_ok(s):
 # bucket fills predictably. We use /sessions/{id}/review with an empty session so
 # the endpoint short-circuits fast (400 "two members...") but still passes through
 # the rate_limit() Depends. Any 429 with the exact detail proves the fix works.
-def test_expensive_endpoint_rate_limit_burst():
+def test_expensive_endpoint_rate_limit_burst(token_a):
     """Burst-fire /sessions/{id}/review (fast 400 short-circuit but still passes
     through rate_limit() Depends). Backend is behind a load-balancer so we fire
     many concurrent requests to saturate every pod's bucket."""
     import requests as rq
     from concurrent.futures import ThreadPoolExecutor
+    H = {"Authorization": f"Bearer {token_a}", "Content-Type": "application/json"}
     sess = rq.post(f"{API}/sessions",
-                   json={"title": "TEST_ratelimit", "participant_ids": ["gpt", "claude"]}).json()
+                   json={"title": "TEST_ratelimit", "participant_ids": ["gpt", "claude"]},
+                   headers=H).json()
     sid = sess["id"]
     url = f"{API}/sessions/{sid}/review"
 
     def hit(_):
         try:
-            return rq.post(url, timeout=15).status_code
+            return rq.post(url, timeout=15, headers=H).status_code
         except Exception:
             return "to"
 
@@ -305,7 +305,7 @@ def test_expensive_endpoint_rate_limit_burst():
             if any(c == 429 for c in codes):
                 break
     finally:
-        rq.delete(f"{API}/sessions/{sid}")
+        rq.delete(f"{API}/sessions/{sid}", headers=H)
 
     from collections import Counter
     dist = Counter(codes)
@@ -313,6 +313,6 @@ def test_expensive_endpoint_rate_limit_burst():
     assert n429 > 0, f"expected some 429s among concurrent expensive-endpoint burst; distribution={dist}"
 
     # Verify body detail on a follow-up call while bucket is still saturated
-    r = rq.post(url, timeout=15)
+    r = rq.post(url, timeout=15, headers=H)
     if r.status_code == 429:
         assert "rate limit" in r.json().get("detail", "").lower()

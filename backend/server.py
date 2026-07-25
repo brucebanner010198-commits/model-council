@@ -1,10 +1,11 @@
-from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Request, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Request, Depends, Response
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 import asyncio
+import contextvars
 import tempfile
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -13,7 +14,7 @@ import uuid
 import json
 import random
 from io import BytesIO
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import httpx
 from fastapi.responses import StreamingResponse
 
@@ -73,6 +74,48 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
+# ---------------- Auth (Emergent Google, multi-user) ----------------
+EMERGENT_AUTH_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
+_current_user_id = contextvars.ContextVar("current_user_id", default=None)
+
+
+class User(BaseModel):
+    user_id: str
+    email: str
+    name: str = ""
+    picture: str = ""
+
+
+class SessionExchange(BaseModel):
+    session_id: str
+
+
+async def get_current_user(request: Request) -> User:
+    token = request.cookies.get("session_token")
+    if not token:
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[7:]
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    sess = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
+    if not sess:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    exp = sess["expires_at"]
+    if isinstance(exp, str):
+        exp = datetime.fromisoformat(exp)
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    if exp < datetime.now(timezone.utc):
+        raise HTTPException(status_code=401, detail="Session expired")
+    user = await db.users.find_one({"user_id": sess["user_id"]}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    _current_user_id.set(user["user_id"])
+    return User(user_id=user["user_id"], email=user.get("email", ""),
+                name=user.get("name", ""), picture=user.get("picture", ""))
+
+
 # ---------------- Basic in-memory rate limiting (cost-abuse protection) ----------------
 from collections import defaultdict, deque
 import time
@@ -129,7 +172,10 @@ class ConcludeRequest(BaseModel):
 
 # ---------------- Settings helpers ----------------
 async def get_settings():
-    doc = await db.settings.find_one({"_id": "global"}, {"_id": 0})
+    uid = _current_user_id.get()
+    if not uid:
+        return {}
+    doc = await db.settings.find_one({"_id": uid}, {"_id": 0})
     return doc or {}
 
 
@@ -266,6 +312,50 @@ async def root():
     return {"message": "AI Model Council API"}
 
 
+@api_router.post("/auth/session")
+async def auth_session(body: SessionExchange, response: Response):
+    async with httpx.AsyncClient(timeout=30) as hc:
+        r = await hc.get(EMERGENT_AUTH_URL, headers={"X-Session-ID": body.session_id})
+    if r.status_code != 200:
+        raise HTTPException(status_code=401, detail="Invalid or expired session_id")
+    data = r.json()
+    email = data.get("email")
+    if not email:
+        raise HTTPException(status_code=401, detail="No email in session data")
+    existing = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing:
+        user_id = existing["user_id"]
+        await db.users.update_one({"user_id": user_id},
+                                  {"$set": {"name": data.get("name", ""), "picture": data.get("picture", "")}})
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        await db.users.insert_one({"user_id": user_id, "email": email, "name": data.get("name", ""),
+                                   "picture": data.get("picture", ""), "created_at": now_iso()})
+    session_token = data["session_token"]
+    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    await db.user_sessions.update_one(
+        {"session_token": session_token},
+        {"$set": {"user_id": user_id, "session_token": session_token,
+                  "expires_at": expires_at.isoformat(), "created_at": now_iso()}}, upsert=True)
+    response.set_cookie("session_token", session_token, httponly=True, secure=True,
+                        samesite="none", path="/", max_age=7 * 24 * 3600)
+    return {"user_id": user_id, "email": email, "name": data.get("name", ""), "picture": data.get("picture", "")}
+
+
+@api_router.get("/auth/me")
+async def auth_me(user: User = Depends(get_current_user)):
+    return user
+
+
+@api_router.post("/auth/logout")
+async def auth_logout(request: Request, response: Response):
+    token = request.cookies.get("session_token")
+    if token:
+        await db.user_sessions.delete_one({"session_token": token})
+    response.delete_cookie("session_token", path="/")
+    return {"ok": True}
+
+
 async def _provider_status():
     status = {}
     for pid in PROVIDERS:
@@ -274,7 +364,7 @@ async def _provider_status():
 
 
 @api_router.get("/council")
-async def council():
+async def council(user: User = Depends(get_current_user)):
     members = [await resolved_member(m["id"]) for m in COUNCIL]
     s = await get_settings()
     nt = dict(NOTETAKER)
@@ -291,7 +381,7 @@ async def council():
 
 
 @api_router.get("/settings")
-async def read_settings():
+async def read_settings(user: User = Depends(get_current_user)):
     s = await get_settings()
     return {
         "openrouter_configured": bool(await get_openrouter_key()),
@@ -305,7 +395,7 @@ async def read_settings():
 
 
 @api_router.post("/settings")
-async def update_settings(body: SettingsUpdate):
+async def update_settings(body: SettingsUpdate, user: User = Depends(get_current_user)):
     update = {}
     if body.openrouter_key is not None:
         update["openrouter_key"] = body.openrouter_key.strip()
@@ -326,13 +416,13 @@ async def update_settings(body: SettingsUpdate):
         update["notetaker_model"] = body.notetaker_model
     if body.personas is not None:
         update["personas"] = body.personas
-    await db.settings.update_one({"_id": "global"}, {"$set": update}, upsert=True)
+    await db.settings.update_one({"_id": user.user_id}, {"$set": update}, upsert=True)
     return {"ok": True, "openrouter_configured": bool(await get_openrouter_key()),
             "providers_configured": await _provider_status()}
 
 
 @api_router.get("/openrouter/models")
-async def list_openrouter_models():
+async def list_openrouter_models(user: User = Depends(get_current_user)):
     key = await get_openrouter_key()
     if not key:
         raise HTTPException(status_code=400, detail="OpenRouter API key not configured.")
@@ -345,9 +435,10 @@ async def list_openrouter_models():
 
 
 @api_router.post("/sessions")
-async def create_session(body: SessionCreate):
+async def create_session(body: SessionCreate, user: User = Depends(get_current_user)):
     sess = {
         "id": str(uuid.uuid4()),
+        "owner": user.user_id,
         "title": body.title,
         "participant_ids": [p for p in body.participant_ids if p in MEMBERS_BY_ID],
         "turns": [],
@@ -357,33 +448,34 @@ async def create_session(body: SessionCreate):
         "created_at": now_iso(),
     }
     await db.sessions.insert_one(dict(sess))
+    sess.pop("_id", None)
     return sess
 
 
 @api_router.get("/sessions")
-async def list_sessions():
-    docs = await db.sessions.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+async def list_sessions(user: User = Depends(get_current_user)):
+    docs = await db.sessions.find({"owner": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
     for d in docs:
         d["turn_count"] = len(d.get("turns", []))
     return docs
 
 
 @api_router.get("/sessions/{sid}")
-async def get_session(sid: str):
-    doc = await db.sessions.find_one({"id": sid}, {"_id": 0})
+async def get_session(sid: str, user: User = Depends(get_current_user)):
+    doc = await db.sessions.find_one({"id": sid, "owner": user.user_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Session not found")
     return doc
 
 
 @api_router.delete("/sessions/{sid}")
-async def delete_session(sid: str):
-    await db.sessions.delete_one({"id": sid})
+async def delete_session(sid: str, user: User = Depends(get_current_user)):
+    await db.sessions.delete_one({"id": sid, "owner": user.user_id})
     return {"ok": True}
 
 
 @api_router.post("/sessions/{sid}/message")
-async def add_message(sid: str, body: HumanMessage):
+async def add_message(sid: str, body: HumanMessage, user: User = Depends(get_current_user)):
     turn = {
         "id": str(uuid.uuid4()),
         "speaker_id": "human",
@@ -392,15 +484,15 @@ async def add_message(sid: str, body: HumanMessage):
         "text": body.text.strip(),
         "ts": now_iso(),
     }
-    res = await db.sessions.update_one({"id": sid}, {"$push": {"turns": turn}})
+    res = await db.sessions.update_one({"id": sid, "owner": user.user_id}, {"$push": {"turns": turn}})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Session not found")
     return turn
 
 
 @api_router.post("/sessions/{sid}/respond")
-async def respond(sid: str, body: RespondRequest, _rl: None = Depends(rate_limit)):
-    doc = await db.sessions.find_one({"id": sid}, {"_id": 0})
+async def respond(sid: str, body: RespondRequest, user: User = Depends(get_current_user), _rl: None = Depends(rate_limit)):
+    doc = await db.sessions.find_one({"id": sid, "owner": user.user_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Session not found")
     if body.model_id not in MEMBERS_BY_ID:
@@ -433,13 +525,13 @@ async def respond(sid: str, body: RespondRequest, _rl: None = Depends(rate_limit
         "text": text,
         "ts": now_iso(),
     }
-    await db.sessions.update_one({"id": sid}, {"$push": {"turns": turn}})
+    await db.sessions.update_one({"id": sid, "owner": user.user_id}, {"$push": {"turns": turn}})
     return {"turn": turn, "audio_base64": audio_b64}
 
 
 @api_router.post("/sessions/{sid}/notes")
-async def update_notes(sid: str, _rl: None = Depends(rate_limit)):
-    doc = await db.sessions.find_one({"id": sid}, {"_id": 0})
+async def update_notes(sid: str, user: User = Depends(get_current_user), _rl: None = Depends(rate_limit)):
+    doc = await db.sessions.find_one({"id": sid, "owner": user.user_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Session not found")
     participants = [await resolved_member(p) for p in doc["participant_ids"]]
@@ -459,13 +551,13 @@ async def update_notes(sid: str, _rl: None = Depends(rate_limit)):
     text = await generate(nt, system, f"Discussion:\n\n{convo}", max_tokens=500)
     points = [ln.strip("-•* \t") for ln in text.split("\n") if ln.strip()]
     notes = [{"id": str(uuid.uuid4()), "text": p, "ts": now_iso()} for p in points]
-    await db.sessions.update_one({"id": sid}, {"$set": {"notes": notes}})
+    await db.sessions.update_one({"id": sid, "owner": user.user_id}, {"$set": {"notes": notes}})
     return {"notes": notes}
 
 
 @api_router.post("/sessions/{sid}/conclude")
-async def conclude(sid: str, body: ConcludeRequest, _rl: None = Depends(rate_limit)):
-    doc = await db.sessions.find_one({"id": sid}, {"_id": 0})
+async def conclude(sid: str, body: ConcludeRequest, user: User = Depends(get_current_user), _rl: None = Depends(rate_limit)):
+    doc = await db.sessions.find_one({"id": sid, "owner": user.user_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Session not found")
     if body.drafter_id not in MEMBERS_BY_ID:
@@ -481,12 +573,12 @@ async def conclude(sid: str, body: ConcludeRequest, _rl: None = Depends(rate_lim
     )
     text = await generate(member, system, f"Council discussion:\n\n{convo}\n\nDraft the final conclusion now.", max_tokens=900)
     conclusion = {"text": text, "drafter_id": member["id"], "drafter_name": member["name"], "ts": now_iso()}
-    await db.sessions.update_one({"id": sid}, {"$set": {"conclusion": conclusion, "status": "concluded"}})
+    await db.sessions.update_one({"id": sid, "owner": user.user_id}, {"$set": {"conclusion": conclusion, "status": "concluded"}})
     return conclusion
 
 
 @api_router.post("/stt")
-async def speech_to_text(audio: UploadFile = File(...), _rl: None = Depends(rate_limit)):
+async def speech_to_text(audio: UploadFile = File(...), user: User = Depends(get_current_user), _rl: None = Depends(rate_limit)):
     if not EMERGENT_LLM_KEY:
         raise HTTPException(status_code=400, detail="Voice key not configured")
     if not audio.content_type or audio.content_type.split(";")[0] not in ALLOWED_AUDIO:
@@ -609,13 +701,13 @@ async def _compute_review(participants, turns):
 
 
 @api_router.post("/sessions/{sid}/review")
-async def peer_review(sid: str, _rl: None = Depends(rate_limit)):
-    doc = await db.sessions.find_one({"id": sid}, {"_id": 0})
+async def peer_review(sid: str, user: User = Depends(get_current_user), _rl: None = Depends(rate_limit)):
+    doc = await db.sessions.find_one({"id": sid, "owner": user.user_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Session not found")
     participants = [await resolved_member(p) for p in doc["participant_ids"]]
     review = await _compute_review(participants, doc["turns"])
-    await db.sessions.update_one({"id": sid}, {"$set": {"review": review}})
+    await db.sessions.update_one({"id": sid, "owner": user.user_id}, {"$set": {"review": review}})
     return review
 
 
@@ -625,8 +717,8 @@ class SynthesizeRequest(BaseModel):
 
 
 @api_router.post("/sessions/{sid}/synthesize")
-async def synthesize(sid: str, body: SynthesizeRequest, _rl: None = Depends(rate_limit)):
-    doc = await db.sessions.find_one({"id": sid}, {"_id": 0})
+async def synthesize(sid: str, body: SynthesizeRequest, user: User = Depends(get_current_user), _rl: None = Depends(rate_limit)):
+    doc = await db.sessions.find_one({"id": sid, "owner": user.user_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Session not found")
     if body.chairman_id not in MEMBERS_BY_ID:
@@ -690,7 +782,7 @@ async def synthesize(sid: str, body: SynthesizeRequest, _rl: None = Depends(rate
     update = {"$push": {"turns": {"$each": all_new}}, "$set": {"synthesis": synthesis}}
     if review:
         update["$set"]["review"] = review
-    await db.sessions.update_one({"id": sid}, update)
+    await db.sessions.update_one({"id": sid, "owner": user.user_id}, update)
     return {"answers": all_new, "review": review, "synthesis": synthesis}
 
 
@@ -701,7 +793,7 @@ class TTSRequest(BaseModel):
 
 
 @api_router.post("/tts")
-async def synth_voice(body: TTSRequest, _rl: None = Depends(rate_limit)):
+async def synth_voice(body: TTSRequest, user: User = Depends(get_current_user), _rl: None = Depends(rate_limit)):
     if not EMERGENT_LLM_KEY:
         raise HTTPException(status_code=400, detail="Voice key not configured")
     voice = body.voice
@@ -718,8 +810,8 @@ async def synth_voice(body: TTSRequest, _rl: None = Depends(rate_limit)):
 
 
 @api_router.get("/sessions/{sid}/export")
-async def export_pdf(sid: str):
-    doc = await db.sessions.find_one({"id": sid}, {"_id": 0})
+async def export_pdf(sid: str, user: User = Depends(get_current_user)):
+    doc = await db.sessions.find_one({"id": sid, "owner": user.user_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -789,8 +881,8 @@ app.include_router(api_router)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=False,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_credentials=True,
+    allow_origin_regex=".*",
     allow_methods=["*"],
     allow_headers=["*"],
 )

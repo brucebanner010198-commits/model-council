@@ -1,4 +1,4 @@
-"""Provider key + routing tests (iteration 4)."""
+"""Provider key + routing tests (iteration 4 + iter5 multi-user)."""
 import os
 import pytest
 import requests
@@ -18,17 +18,13 @@ API = f"{BASE_URL}/api"
 PROVIDER_IDS = {"openai", "anthropic", "gemini", "deepseek", "moonshot"}
 
 
-@pytest.fixture(scope="module")
-def s():
-    return requests.Session()
+# `s` fixture (authed as user A) comes from conftest.py
 
 
 @pytest.fixture(scope="module", autouse=True)
-def cleanup(s):
+def cleanup(seeded_users):
     """Ensure any provider_keys we set are cleared afterwards."""
     yield
-    # unset provider_keys directly via a mongo shell would be ideal; instead POST empty won't clear.
-    # We rely on our helper below (see test_cleanup_provider_keys) which nulls them via mongo.
     try:
         from pymongo import MongoClient
         env = {}
@@ -38,8 +34,10 @@ def cleanup(s):
                     k, v = line.strip().split("=", 1)
                     env[k] = v.strip().strip('"').strip("'")
         mc = MongoClient(env["MONGO_URL"])
+        # Clear the per-user settings doc for user A
         mc[env["DB_NAME"]].settings.update_one(
-            {"_id": "global"}, {"$unset": {"provider_keys": "", "openrouter_key": ""}}
+            {"_id": seeded_users["a"]["user_id"]},
+            {"$unset": {"provider_keys": "", "openrouter_key": ""}},
         )
     except Exception as e:
         print(f"cleanup failed: {e}")
@@ -138,7 +136,7 @@ def test_respond_direct_with_fake_key_graceful(s):
         s.delete(f"{API}/sessions/{sid}")
 
 
-def test_respond_auto_no_keys_graceful(s):
+def test_respond_auto_no_keys_graceful(s, seeded_users):
     # Clear provider_keys via direct DB unset, then attempt auto routing => graceful
     try:
         from pymongo import MongoClient
@@ -150,7 +148,8 @@ def test_respond_auto_no_keys_graceful(s):
                     env[k] = v.strip().strip('"').strip("'")
         mc = MongoClient(env["MONGO_URL"])
         mc[env["DB_NAME"]].settings.update_one(
-            {"_id": "global"}, {"$unset": {"provider_keys": "", "openrouter_key": ""}, "$set": {"routing": {"gpt": "auto"}}}
+            {"_id": seeded_users["a"]["user_id"]},
+            {"$unset": {"provider_keys": "", "openrouter_key": ""}, "$set": {"routing": {"gpt": "auto"}}},
         )
     except Exception as e:
         pytest.skip(f"cannot reset db: {e}")

@@ -7,10 +7,12 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../components/ui/dialog";
 import { toast } from "sonner";
-import { Settings, Plus, Users, Trash2, ArrowUpRight, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Settings, Plus, Users, Trash2, ArrowUpRight, AlertTriangle, CheckCircle2, LogOut } from "lucide-react";
+import { useAuth } from "../contexts/AuthContext";
 
 export default function Home() {
   const nav = useNavigate();
+  const { user, logout } = useAuth();
   const [council, setCouncil] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -58,10 +60,26 @@ export default function Home() {
             </div>
             <span className="font-mono text-sm tracking-[0.25em] uppercase text-zinc-400">The Council</span>
           </div>
-          <Button data-testid="open-settings-btn" variant="ghost" onClick={() => setSettingsOpen(true)}
-            className="text-zinc-400 hover:text-white hover:bg-white/5">
-            <Settings className="h-4 w-4 mr-2" /> Configure
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button data-testid="open-settings-btn" variant="ghost" onClick={() => setSettingsOpen(true)}
+              className="text-zinc-400 hover:text-white hover:bg-white/5">
+              <Settings className="h-4 w-4 mr-2" /> Configure
+            </Button>
+            <div className="flex items-center gap-2 pl-2 border-l border-white/10">
+              {user?.picture ? (
+                <img src={user.picture} alt="" className="h-7 w-7 rounded-full" data-testid="user-avatar" />
+              ) : (
+                <div className="h-7 w-7 rounded-full bg-white/10 flex items-center justify-center text-[11px] font-mono" data-testid="user-avatar">
+                  {(user?.name || user?.email || "?").slice(0, 1).toUpperCase()}
+                </div>
+              )}
+              <span className="text-xs text-zinc-400 hidden sm:inline max-w-[140px] truncate" data-testid="user-name">{user?.name || user?.email}</span>
+              <button data-testid="logout-btn" onClick={logout}
+                className="p-2 rounded-full text-zinc-500 hover:text-red-400 hover:bg-white/5 transition-colors duration-200">
+                <LogOut className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
         </header>
 
         {/* Hero */}

@@ -3,7 +3,24 @@ import axios from "axios";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 export const API = `${BACKEND_URL}/api`;
 
-const client = axios.create({ baseURL: API });
+const client = axios.create({ baseURL: API, withCredentials: true });
+
+client.interceptors.response.use(
+  (r) => r,
+  (error) => {
+    const url = error?.config?.url || "";
+    const isAuthCheck = url.includes("/auth/me") || url.includes("/auth/session");
+    if (error?.response?.status === 401 && !isAuthCheck && window.location.pathname !== "/login") {
+      window.location.href = "/login";
+    }
+    return Promise.reject(error);
+  }
+);
+
+
+export const exchangeSession = (session_id) => client.post("/auth/session", { session_id }).then((r) => r.data);
+export const getMe = () => client.get("/auth/me").then((r) => r.data);
+export const logout = () => client.post("/auth/logout").then((r) => r.data);
 
 export const getCouncil = () => client.get("/council").then((r) => r.data);
 export const getSettings = () => client.get("/settings").then((r) => r.data);
