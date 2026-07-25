@@ -1,0 +1,140 @@
+{
+  "theme": "dark",
+  "archetype": "Luxury & The Performance Pro (Mission Control, Deep Tech, Authoritative)",
+  "typography": {
+    "fonts": {
+      "heading": "Cabinet Grotesk",
+      "body": "IBM Plex Sans",
+      "mono": "JetBrains Mono"
+    },
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tighter font-light",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight font-medium",
+      "h3": "text-xl sm:text-2xl tracking-tight",
+      "h4": "text-lg sm:text-xl",
+      "body": "text-base leading-relaxed text-zinc-300",
+      "small": "text-sm text-zinc-400",
+      "labels": "text-xs tracking-[0.2em] uppercase text-zinc-500 font-mono"
+    },
+    "install_command": "Use standard Google Fonts import in index.css for IBM Plex Sans and JetBrains Mono. Use Fontshare API for Cabinet Grotesk: @import url('https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@100,200,300,400,500,700,800,900&display=swap');"
+  },
+  "colors": {
+    "background": {
+      "main": "#050505",
+      "surface": "#0a0a0c",
+      "surface_hover": "#121214"
+    },
+    "text": {
+      "primary": "#ffffff",
+      "secondary": "#a1a1aa",
+      "muted": "#71717a"
+    },
+    "border": {
+      "default": "#27272a",
+      "light": "rgba(255, 255, 255, 0.1)"
+    },
+    "models": {
+      "GPT": {"hex": "#10B981", "name": "Emerald"},
+      "Claude": {"hex": "#F59E0B", "name": "Amber"},
+      "Gemini": {"hex": "#8B5CF6", "name": "Amethyst"},
+      "DeepSeek": {"hex": "#EF4444", "name": "Crimson"},
+      "Qwen": {"hex": "#3B82F6", "name": "Cobalt"},
+      "Human": {"hex": "#FFFFFF", "name": "Pure White"}
+    }
+  },
+  "visual_enhancers": {
+    "glassmorphism": {
+      "base": "backdrop-blur-xl bg-black/60",
+      "border": "border border-white/10",
+      "shadow": "shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
+    },
+    "neumorphism": null,
+    "grid_borders": {
+      "container": "border-collapse",
+      "item": "border-r border-b border-white/10"
+    },
+    "glow": "drop-shadow-[0_0_12px_var(--model-color)]",
+    "noise": "Use a subtle SVG grain or CSS noise overlay fixed at opacity-5 over the entire background to kill the 'digital flatness'."
+  },
+  "components": {
+    "video_tile": {
+      "description": "The container for each council member. Flat background (#0a0a0c), 1px solid border. When speaking, the border transitions to the model's accent color with a subtle box-shadow glow, and the audio waveform animates.",
+      "active_state": "border-[var(--model-color)] shadow-[0_0_20px_var(--model-color-20)]"
+    },
+    "control_dock": {
+      "description": "Floating bar at the bottom for human controls (Push to Talk, Mute, Leave, Draft Conclusion). Uses the 'Crystal Glass' visual enhancer.",
+      "position": "fixed bottom-8 left-1/2 -translate-x-1/2 z-50 rounded-full px-6 py-4 flex gap-6 items-center"
+    },
+    "transcript_panel": {
+      "description": "Live feed of text. Name tags use 'mono' font + model's specific color.",
+      "layout": "Flex column, gap-6, overflow-y-auto"
+    },
+    "notes_panel": {
+      "description": "A structurally separate column for key takeaways. Background is a slightly differentiated gray (e.g., #08080a) to contrast with the transcript.",
+      "layout": "Sticky right sidebar or toggleable sheet."
+    }
+  },
+  "grids": {
+    "dashboard": "grid grid-cols-1 md:grid-cols-4 lg:grid-cols-5 gap-6",
+    "call_room": {
+      "main": "h-screen w-full grid grid-cols-1 lg:grid-cols-12 overflow-hidden",
+      "video_grid": "col-span-1 lg:col-span-8 grid grid-cols-2 md:grid-cols-3 gap-4 p-6",
+      "sidebars": "col-span-1 lg:col-span-4 grid grid-rows-2 h-full border-l border-white/10",
+      "transcript": "row-span-1 border-b border-white/10 p-6 overflow-hidden flex flex-col",
+      "notes": "row-span-1 p-6 overflow-hidden flex flex-col"
+    }
+  },
+  "layouts": {
+    "global": "Dark theme forced. Overrides light mode.",
+    "spacing": "Generous spacing. Tailwind p-6 to p-8 internally for containers.",
+    "alignment": "Mobile-first responsive. Optical alignment over geometric."
+  },
+  "motion": {
+    "transitions": "Use specific transitions. e.g., 'transition-colors duration-300', 'transition-transform duration-200 ease-out'. DO NOT use 'transition-all'.",
+    "waveform": "Use framer-motion. Array of 5-7 vertical motion.divs. Animate scaleY from 0.2 to 1 with repeat: Infinity, repeatType: 'mirror', and varying delays when the model is 'speaking'.",
+    "list_entrance": "Staggered fade-up for transcript lines and dashboard items."
+  },
+  "accessibility": {
+    "contrast": "Text must meet APCA standards. Soft white on black is excellent.",
+    "focus": "focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2 focus:ring-offset-black",
+    "motion": "Respect prefers-reduced-motion for the waveform and UI scaling."
+  },
+  "media": {
+    "images": {
+      "background_texture": {
+        "url": "https://images.unsplash.com/photo-1650954316166-c3361fefcc87?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzd8MHwxfHNlYXJjaHw0fHxkYXJrJTIwbWluaW1hbGlzdGljJTIwZnV0dXJpc3RpYyUyMHRleHR1cmV8ZW58MHx8fHwxNzg0OTU0NzY0fDA&ixlib=rb-4.1.0&q=85",
+        "category": "texture",
+        "description": "Minimalistic dark futuristic texture for background overlays (use with opacity-5 and mix-blend-overlay)."
+      },
+      "abstract_wave": {
+        "url": "https://images.unsplash.com/photo-1688413708993-39da5ee59315?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzd8MHwxfHNlYXJjaHwzfHxhYnN0cmFjdCUyMGdsb3dpbmclMjBzb3VuZCUyMHdhdmUlMjBkYXJrfGVufDB8fHx8MTc4NDk1NDc2M3ww&ixlib=rb-4.1.0&q=85",
+        "category": "hero_visual",
+        "description": "Abstract glowing wave on dark background, for the home dashboard hero or loading screen."
+      }
+    },
+    "icons": "lucide-react"
+  },
+  "3d_libraries": {
+    "library": "framer-motion",
+    "usage": "Use Framer Motion for 2D animated soundwaves and layout transitions. A full WebGL/Three.js scene is overkill and distracts from the text/audio focus of the council room.",
+    "installation_steps": "yarn add framer-motion"
+  },
+  "instructions_to_main_agent": {
+    "setup": "1. Initialize Tailwind with the provided color hexes in tailwind.config.js. 2. Set dark mode class on the HTML tag. 3. Import fonts in index.css. 4. Build components strictly with Tailwind utility classes.",
+    "component_creation": "Create custom layout components for the Call Room since it breaks standard SaaS shapes. Use Shadcn only for standard dropdowns/dialogs (like the model setup screen). Do not use Shadcn 'Card' for the video tiles; build them out of pure divs for exact control over border glows.",
+    "call_room_logic": "Mock the conversational state. Have a timer or manual trigger that cycles which model is 'speaking' to demonstrate the waveform animations, active tile highlights, and transcript auto-scroll.",
+    "data_testids": "Ensure every button (Push to Talk, Setup Council, End Session) has a unique data-testid."
+  },
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. Avoid this. Create depth through layered design elements with z-index hierarchy.",
+    "DO NOT use dark colors as gradients.",
+    "You MUST NOT apply universal transition (e.g., transition: all).",
+    "You MUST NOT center align the app container in App.css.",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style.",
+    "NEVER use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 for icons. Use clean Lucide icons.",
+    "Every interaction needs micro-animations - hover states, transitions, entrance animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable.",
+    "Ensure all interactive and key informational elements include a data-testid attribute.",
+    "Use sonner for toast notifications. Sonner component located in /app/frontend/src/components/ui/sonner.tsx."
+  ]
+}
