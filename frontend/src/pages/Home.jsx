@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { getCouncil, listSessions, createSession, deleteSession } from "../lib/api";
@@ -20,11 +20,11 @@ export default function Home() {
   const [title, setTitle] = useState("");
   const [selected, setSelected] = useState([]);
 
-  const load = () => {
-    getCouncil().then(setCouncil);
-    listSessions().then(setSessions);
-  };
-  useEffect(() => { load(); }, []);
+  const load = useCallback(() => {
+    getCouncil().then(setCouncil).catch((e) => console.warn("Failed to load council:", e));
+    listSessions().then(setSessions).catch((e) => console.warn("Failed to load sessions:", e));
+  }, []);
+  useEffect(() => { load(); }, [load]);
 
   const openSetup = () => {
     if (council) setSelected(council.members.map((m) => m.id));

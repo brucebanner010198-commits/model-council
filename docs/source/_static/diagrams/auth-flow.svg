@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 500" font-family="'Inter','Segoe UI',sans-serif" font-size="13">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+    </marker>
+    <style>
+      .box{fill:#0a0a0c;stroke:#27272a;stroke-width:1.5;rx:10;ry:10}
+      .lbl{fill:#e4e4e7;font-weight:600}
+      .sub{fill:#a1a1aa;font-size:11px}
+      .flow{stroke:#94a3b8;stroke-width:1.5;fill:none}
+      .flow-google{stroke:#8b5cf6;stroke-width:1.8;fill:none}
+      .flow-magic{stroke:#34d399;stroke-width:1.8;fill:none}
+      .tag{fill:#a1a1aa;font-size:11px;font-family:'JetBrains Mono',monospace}
+    </style>
+  </defs>
+  <rect width="900" height="500" fill="#050505"/>
+  <text x="450" y="32" text-anchor="middle" fill="#e4e4e7" font-size="16" font-weight="600">Authentication flows — merged by email</text>
+
+  <!-- Column headers (lanes) -->
+  <text class="lbl" x="90"  y="70" text-anchor="middle">Browser</text>
+  <text class="lbl" x="290" y="70" text-anchor="middle">Backend</text>
+  <text class="lbl" x="490" y="70" text-anchor="middle">Emergent OAuth</text>
+  <text class="lbl" x="720" y="70" text-anchor="middle">Resend / Mongo</text>
+
+  <!-- Lane lines -->
+  <line x1="90"  y1="85" x2="90"  y2="470" stroke="#27272a"/>
+  <line x1="290" y1="85" x2="290" y2="470" stroke="#27272a"/>
+  <line x1="490" y1="85" x2="490" y2="470" stroke="#27272a"/>
+  <line x1="720" y1="85" x2="720" y2="470" stroke="#27272a"/>
+
+  <!-- Google flow -->
+  <text class="lbl" x="70" y="110" fill="#8b5cf6">GOOGLE</text>
+  <path class="flow-google" d="M90 130 L490 130" marker-end="url(#a)"/>
+  <text class="tag" x="260" y="125" text-anchor="middle">redirect → auth.emergentagent.com</text>
+  <path class="flow-google" d="M490 155 L90 155" marker-end="url(#a)"/>
+  <text class="tag" x="260" y="170" text-anchor="middle">← back to /#session_id=…</text>
+  <path class="flow-google" d="M90 195 L290 195" marker-end="url(#a)"/>
+  <text class="tag" x="180" y="190" text-anchor="middle">POST /api/auth/session</text>
+  <path class="flow-google" d="M290 220 L490 220" marker-end="url(#a)"/>
+  <text class="tag" x="380" y="215" text-anchor="middle">GET session-data</text>
+  <path class="flow-google" d="M490 245 L290 245" marker-end="url(#a)"/>
+  <text class="tag" x="380" y="240" text-anchor="middle">← {email, name, picture}</text>
+  <path class="flow-google" d="M290 270 L90 270" marker-end="url(#a)"/>
+  <text class="tag" x="180" y="265" text-anchor="middle">Set-Cookie session_token</text>
+
+  <!-- Divider -->
+  <line x1="40" y1="295" x2="860" y2="295" stroke="#27272a" stroke-dasharray="3 3"/>
+
+  <!-- Magic flow -->
+  <text class="lbl" x="70" y="320" fill="#34d399">MAGIC-LINK</text>
+  <path class="flow-magic" d="M90 340 L290 340" marker-end="url(#a)"/>
+  <text class="tag" x="180" y="335" text-anchor="middle">POST /auth/magic/request</text>
+  <path class="flow-magic" d="M290 365 L720 365" marker-end="url(#a)"/>
+  <text class="tag" x="505" y="360" text-anchor="middle">store sha256(token), send email</text>
+  <path class="flow-magic" d="M720 385 L90 385" marker-end="url(#a)"/>
+  <text class="tag" x="400" y="400" text-anchor="middle">← email with /login#magic=&lt;token&gt;</text>
+  <path class="flow-magic" d="M90 425 L290 425" marker-end="url(#a)"/>
+  <text class="tag" x="180" y="420" text-anchor="middle">POST /auth/magic/verify</text>
+  <path class="flow-magic" d="M290 450 L90 450" marker-end="url(#a)"/>
+  <text class="tag" x="180" y="445" text-anchor="middle">used=true · Set-Cookie</text>
+
+  <text class="tag" x="860" y="495" text-anchor="end">Both flows call _login_user() → merged by email</text>
+</svg>

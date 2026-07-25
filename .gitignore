@@ -86,3 +86,18 @@ android-sdk/
 credentials.json
 *.key
 .credentials
+
+# Sphinx documentation build output
+docs/build/
+docs/_build/
+
+# Test artifacts
+/test_reports/
+test_reports/
+pytest_results.xml
+.pytest_cache/
+
+# Generated audio
+*.mp3
+*.wav
+*.webm

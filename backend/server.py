@@ -19,6 +19,7 @@ from io import BytesIO
 from datetime import datetime, timezone, timedelta
 import httpx
 import resend
+import bcrypt
 from fastapi.responses import StreamingResponse
 
 from emergentintegrations.llm.openai import OpenAITextToSpeech, OpenAISpeechToText
@@ -104,6 +105,12 @@ class MagicVerify(BaseModel):
     token: str = Field(..., max_length=256)
 
 
+class PasswordAuth(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=128)
+    name: Optional[str] = Field(default=None, max_length=80)
+
+
 async def get_current_user(request: Request) -> User:
     token = request.cookies.get("session_token")
     if not token:
@@ -158,12 +165,13 @@ def rate_limit(request: Request):
 # ---------------- Models ----------------
 class SettingsUpdate(BaseModel):
     openrouter_key: Optional[str] = None
-    provider_keys: Optional[dict] = None   # {provider_id: api_key}
-    models: Optional[dict] = None          # {member_id: openrouter_model_id}
-    native_models: Optional[dict] = None   # {member_id: native_model_name}
-    routing: Optional[dict] = None         # {member_id: "auto"|"direct"|"openrouter"}
+    provider_keys: Optional[dict] = None            # {provider_id: api_key}
+    subscription_tokens: Optional[dict] = None      # {provider_id: {access_token, refresh_token?, account_id?, expires_at?}}
+    models: Optional[dict] = None                   # {member_id: openrouter_model_id}
+    native_models: Optional[dict] = None            # {member_id: native_model_name}
+    routing: Optional[dict] = None                  # {member_id: "auto"|"direct"|"openrouter"|"subscription"}
     notetaker_model: Optional[str] = None
-    personas: Optional[dict] = None        # {member_id: persona_text}
+    personas: Optional[dict] = None                 # {member_id: persona_text}
 
 
 class SessionCreate(BaseModel):
@@ -204,6 +212,28 @@ async def get_provider_key(provider_id: str):
     return pk.get(provider_id) or os.environ.get(f"{provider_id.upper()}_API_KEY") or ""
 
 
+async def get_subscription(provider_id: str) -> Optional[dict]:
+    """Return the stored subscription-OAuth blob for a provider, or None.
+    Shape: {access_token, refresh_token?, account_id?, expires_at?}"""
+    s = await get_settings()
+    subs = s.get("subscription_tokens", {}) or {}
+    blob = subs.get(provider_id)
+    if not blob or not isinstance(blob, dict) or not blob.get("access_token"):
+        return None
+    return blob
+
+
+async def save_subscription(provider_id: str, blob: dict):
+    """Persist an updated subscription blob (used after refreshing an OpenAI access token)."""
+    uid = _current_user_id.get()
+    if not uid:
+        return
+    doc = await db.settings.find_one({"_id": uid}) or {}
+    subs = dict(doc.get("subscription_tokens", {}) or {})
+    subs[provider_id] = blob
+    await db.settings.update_one({"_id": uid}, {"$set": {"subscription_tokens": subs}}, upsert=True)
+
+
 async def resolved_member(mid: str):
     base = dict(MEMBERS_BY_ID[mid])
     s = await get_settings()
@@ -234,24 +264,204 @@ async def call_openai_compatible(base: str, key: str, model: str, messages: list
     return r.json()["choices"][0]["message"]["content"].strip()
 
 
+# ---------------- Anthropic Claude Pro/Max subscription (OAuth) ----------------
+ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
+
+def _oai_messages_to_anthropic(messages: list) -> tuple:
+    """Convert OpenAI-style messages to Anthropic's (system, messages) format."""
+    system_parts, conv = [], []
+    for m in messages:
+        role = m.get("role")
+        content = m.get("content") or ""
+        if role == "system":
+            system_parts.append(content)
+        elif role in ("user", "assistant"):
+            conv.append({"role": role, "content": [{"type": "text", "text": content}]})
+    return "\n\n".join(system_parts).strip(), conv
+
+
+async def call_anthropic_subscription(access_token: str, model: str, messages: list, max_tokens: int):
+    """Call Anthropic Messages API using a Claude Pro/Max `sk-ant-oat01-...` OAuth token.
+    Requires the `anthropic-beta: oauth-2025-04-20` header."""
+    system, conv = _oai_messages_to_anthropic(messages)
+    payload = {
+        "model": model, "max_tokens": max_tokens,
+        "system": system, "messages": conv,
+    }
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "oauth-2025-04-20",
+        "content-type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=120) as hc:
+        r = await hc.post(ANTHROPIC_MESSAGES_URL, headers=headers, json=payload)
+    if r.status_code != 200:
+        raise ProviderError(f"Anthropic-OAuth HTTP {r.status_code}: {r.text[:300]}")
+    data = r.json()
+    parts = data.get("content", [])
+    text = "".join(p.get("text", "") for p in parts if p.get("type") == "text")
+    return text.strip()
+
+
+# ---------------- OpenAI ChatGPT Plus/Pro subscription (Codex CLI OAuth) ----------------
+# Uses undocumented Codex endpoints. Marked experimental — OpenAI can change these.
+OPENAI_CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
+OPENAI_OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"
+# Codex CLI's client_id (public/PKCE, no secret)
+OPENAI_CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
+
+
+def _iso_to_dt(s: str) -> datetime:
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except Exception:
+        return datetime.now(timezone.utc) - timedelta(days=1)  # force refresh
+
+
+async def _refresh_openai_codex_token(blob: dict) -> dict:
+    """Refresh an expiring Codex access_token using the stored refresh_token.
+    Returns an updated blob (also persists it)."""
+    rt = (blob or {}).get("refresh_token")
+    if not rt:
+        raise ProviderError("Codex refresh_token missing — please re-paste your ~/.codex/auth.json contents")
+    payload = {
+        "client_id": OPENAI_CODEX_CLIENT_ID,
+        "grant_type": "refresh_token",
+        "refresh_token": rt,
+        "scope": "openid profile email",
+    }
+    async with httpx.AsyncClient(timeout=30) as hc:
+        r = await hc.post(OPENAI_OAUTH_TOKEN_URL, json=payload,
+                          headers={"Content-Type": "application/json"})
+    if r.status_code != 200:
+        raise ProviderError(f"Codex token refresh failed HTTP {r.status_code}: {r.text[:200]}")
+    data = r.json()
+    new_blob = dict(blob)
+    new_blob["access_token"] = data.get("access_token") or new_blob.get("access_token")
+    if data.get("refresh_token"):
+        new_blob["refresh_token"] = data["refresh_token"]
+    expires_in = int(data.get("expires_in") or 3600)
+    new_blob["expires_at"] = (datetime.now(timezone.utc) + timedelta(seconds=expires_in - 60)).isoformat()
+    await save_subscription("openai", new_blob)
+    logger.info(f"[subscription] refreshed OpenAI Codex access_token, expires_at={new_blob['expires_at']}")
+    return new_blob
+
+
+async def call_openai_codex_subscription(blob: dict, model: str, messages: list, max_tokens: int):
+    """Call the ChatGPT Codex 'responses' endpoint on behalf of a Plus/Pro subscriber.
+    Uses SSE streaming; we buffer the whole stream then extract the final text."""
+    # Refresh if expiring soon
+    exp = _iso_to_dt(blob.get("expires_at") or "")
+    if exp <= datetime.now(timezone.utc):
+        blob = await _refresh_openai_codex_token(blob)
+    # Build Responses API payload
+    system, convo = "", []
+    for m in messages:
+        role, content = m.get("role"), m.get("content") or ""
+        if role == "system":
+            system = (system + "\n\n" + content).strip() if system else content
+        elif role in ("user", "assistant"):
+            convo.append({
+                "role": role,
+                "content": [{"type": "input_text" if role == "user" else "output_text",
+                             "text": content}],
+            })
+    payload = {
+        "model": model,
+        "instructions": system or "You are a helpful assistant.",
+        "input": convo,
+        "max_output_tokens": max_tokens,
+        "stream": True,
+        "store": False,
+    }
+    headers = {
+        "Authorization": f"Bearer {blob['access_token']}",
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "OpenAI-Beta": "responses=experimental",
+    }
+    if blob.get("account_id"):
+        headers["Chatgpt-Account-Id"] = blob["account_id"]
+
+    # Read the SSE stream and concatenate the output_text deltas.
+    text_out = []
+    async with httpx.AsyncClient(timeout=180) as hc:
+        async with hc.stream("POST", OPENAI_CODEX_RESPONSES_URL, headers=headers, json=payload) as r:
+            if r.status_code != 200:
+                body = await r.aread()
+                raise ProviderError(f"Codex HTTP {r.status_code}: {body[:300].decode(errors='ignore')}")
+            async for line in r.aiter_lines():
+                if not line or not line.startswith("data:"):
+                    continue
+                data_str = line[5:].strip()
+                if data_str == "[DONE]" or not data_str:
+                    continue
+                try:
+                    evt = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
+                et = evt.get("type", "")
+                if et == "response.output_text.delta":
+                    text_out.append(evt.get("delta", ""))
+                elif et == "response.completed":
+                    # Some models emit the whole text at completion.
+                    resp = evt.get("response", {}) or {}
+                    if not text_out:
+                        for item in resp.get("output", []) or []:
+                            for c in item.get("content", []) or []:
+                                if c.get("type") == "output_text":
+                                    text_out.append(c.get("text", ""))
+    final = "".join(text_out).strip()
+    if not final:
+        raise ProviderError("Codex returned an empty response (stream closed with no text).")
+    return final
+
+
 async def generate(member: dict, system: str, user: str, max_tokens: int = 500):
-    """Route a member's completion: prefer native subscription/provider, fall back to OpenRouter per-model."""
+    """Route a member's completion. Preference order per routing setting:
+       - subscription: [subscription, direct, openrouter]  (subscription = ChatGPT Plus / Claude Pro OAuth)
+       - direct:       [direct, openrouter]
+       - openrouter:   [openrouter]
+       - auto:         subscription if configured for this provider, else direct if key, else openrouter
+    """
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     pref = member.get("routing", "auto")
     provider = member.get("provider")
     prov_key = await get_provider_key(provider) if provider else ""
+    sub_blob = await get_subscription(provider) if provider in ("openai", "anthropic") else None
 
-    if pref == "openrouter":
+    if pref == "subscription":
+        routes = ["subscription", "direct", "openrouter"] if sub_blob else ["direct", "openrouter"]
+    elif pref == "openrouter":
         routes = ["openrouter"]
     elif pref == "direct":
         routes = ["direct", "openrouter"]
     else:  # auto
-        routes = ["direct", "openrouter"] if prov_key else ["openrouter"]
+        if sub_blob:
+            routes = ["subscription", "direct", "openrouter"] if prov_key else ["subscription", "openrouter"]
+        elif prov_key:
+            routes = ["direct", "openrouter"]
+        else:
+            routes = ["openrouter"]
 
     last_err = None
     for route in routes:
         try:
-            if route == "direct":
+            if route == "subscription":
+                if not sub_blob:
+                    raise ProviderError(f"No subscription token for {provider}")
+                if provider == "anthropic":
+                    text = await call_anthropic_subscription(
+                        sub_blob["access_token"], member["native_model"], messages, max_tokens)
+                elif provider == "openai":
+                    text = await call_openai_codex_subscription(
+                        sub_blob, member["native_model"], messages, max_tokens)
+                else:
+                    raise ProviderError(f"Subscription auth not supported for {provider}")
+                logger.info(f"{member.get('name')} answered via {provider} (subscription)")
+                return text
+            elif route == "direct":
                 if not prov_key:
                     raise ProviderError(f"No API key for {provider}")
                 base = PROVIDERS[provider]["base"]
@@ -273,7 +483,7 @@ async def generate(member: dict, system: str, user: str, max_tokens: int = 500):
     if isinstance(last_err, HTTPException):
         raise last_err
     raise HTTPException(status_code=502,
-                        detail=f"No provider available for {member.get('name')}. Add a subscription key or an OpenRouter key in Settings.")
+                        detail=f"No provider available for {member.get('name')}. Add a subscription, API key or OpenRouter key in Settings.")
 
 
 async def call_openrouter(model: str, messages: list, max_tokens: int = 500):
@@ -337,32 +547,93 @@ async def _login_user(email: str, name: str, picture: str, response: Response):
             upd["picture"] = picture
         if upd:
             await db.users.update_one({"user_id": user_id}, {"$set": upd})
+        logger.info(f"[auth] existing user matched by email: user_id={user_id}")
     else:
         user_id = f"user_{uuid.uuid4().hex[:12]}"
         await db.users.insert_one({"user_id": user_id, "email": email,
                                    "name": name or email.split("@")[0], "picture": picture or "",
                                    "created_at": now_iso()})
+        logger.info(f"[auth] new user created: user_id={user_id}")
     session_token = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + timedelta(days=7)
     await db.user_sessions.insert_one({"user_id": user_id, "session_token": session_token,
                                        "expires_at": expires_at.isoformat(), "created_at": now_iso()})
     response.set_cookie("session_token", session_token, httponly=True, secure=True,
                         samesite="none", path="/", max_age=7 * 24 * 3600)
+    logger.info(f"[auth] session cookie set: user_id={user_id} token_prefix={session_token[:8]}...")
     u = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    return {"user_id": user_id, "email": email, "name": u.get("name", ""), "picture": u.get("picture", "")}
+    # Also return the token so browsers that block third-party / cross-site
+    # cookies can fall back to Authorization: Bearer <token>.
+    return {"user_id": user_id, "email": email, "name": u.get("name", ""),
+            "picture": u.get("picture", ""), "session_token": session_token}
 
 
 @api_router.post("/auth/session")
-async def auth_session(body: SessionExchange, response: Response):
-    async with httpx.AsyncClient(timeout=30) as hc:
-        r = await hc.get(EMERGENT_AUTH_URL, headers={"X-Session-ID": body.session_id})
+async def auth_session(body: SessionExchange, request: Request, response: Response):
+    sid = body.session_id or ""
+    sid_prefix = sid[:8] + "..." if sid else "(empty)"
+    client_ip = request.client.host if request.client else "?"
+    origin = request.headers.get("origin", "?")
+    logger.info(f"[auth/session] START sid_prefix={sid_prefix} sid_len={len(sid)} "
+                f"client_ip={client_ip} origin={origin}")
+    if not sid:
+        logger.warning("[auth/session] REJECT empty session_id")
+        raise HTTPException(status_code=400, detail="session_id is required")
+    try:
+        async with httpx.AsyncClient(timeout=30) as hc:
+            r = await hc.get(EMERGENT_AUTH_URL, headers={"X-Session-ID": sid})
+    except httpx.HTTPError as exc:
+        logger.error(f"[auth/session] Emergent /session-data HTTP error: {type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=502, detail=f"Auth provider unreachable: {type(exc).__name__}")
+    body_sample = (r.text or "")[:200].replace("\n", " ")
+    logger.info(f"[auth/session] Emergent /session-data → status={r.status_code} body_sample={body_sample!r}")
     if r.status_code != 200:
-        raise HTTPException(status_code=401, detail="Invalid or expired session_id")
-    data = r.json()
+        raise HTTPException(status_code=401,
+                            detail=f"Emergent OAuth rejected session_id (upstream {r.status_code}). "
+                                   "It's single-use and expires quickly — please try signing in again.")
+    try:
+        data = r.json()
+    except Exception as exc:
+        logger.error(f"[auth/session] Emergent returned non-JSON: {exc}")
+        raise HTTPException(status_code=502, detail="Auth provider returned malformed response")
     email = data.get("email")
+    # Mask email for privacy in logs
+    email_masked = (email[:2] + "***@" + email.split("@", 1)[1]) if email and "@" in email else "(none)"
+    logger.info(f"[auth/session] session-data OK email={email_masked} "
+                f"name={data.get('name', '(none)')!r}")
     if not email:
         raise HTTPException(status_code=401, detail="No email in session data")
-    return await _login_user(email, data.get("name", ""), data.get("picture", ""), response)
+    result = await _login_user(email, data.get("name", ""), data.get("picture", ""), response)
+    logger.info(f"[auth/session] DONE user_id={result['user_id']}")
+    return result
+
+
+@api_router.get("/auth/debug")
+async def auth_debug(request: Request):
+    """Non-sensitive diagnostic endpoint for auth troubleshooting.
+    Returns only booleans and prefixes — never leaks tokens or user data."""
+    cookie = request.cookies.get("session_token") or ""
+    header_auth = request.headers.get("authorization", "")
+    bearer = ""
+    if header_auth.lower().startswith("bearer "):
+        bearer = header_auth[7:].strip()
+    token = cookie or bearer
+    session_row = None
+    if token:
+        session_row = await db.user_sessions.find_one({"session_token": token}, {"_id": 0, "session_token": 0})
+    return {
+        "server_time": now_iso(),
+        "origin": request.headers.get("origin", ""),
+        "referer": (request.headers.get("referer") or "")[:80],
+        "cookie_present": bool(cookie),
+        "cookie_prefix": (cookie[:8] + "...") if cookie else "",
+        "bearer_present": bool(bearer),
+        "bearer_prefix": (bearer[:8] + "...") if bearer else "",
+        "session_found": bool(session_row),
+        "session_expires_at": session_row.get("expires_at") if session_row else None,
+        "emergent_llm_key_configured": bool(os.environ.get("EMERGENT_LLM_KEY")),
+        "resend_configured": bool(os.environ.get("RESEND_API_KEY")),
+    }
 
 
 @api_router.post("/auth/magic/request")
@@ -419,6 +690,64 @@ async def magic_verify(body: MagicVerify, response: Response):
     return await _login_user(doc["email"], "", "", response)
 
 
+def _hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
+
+
+def _verify_password(password: str, hashed: str) -> bool:
+    if not hashed:
+        return False
+    try:
+        return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
+    except (ValueError, TypeError):
+        return False
+
+
+@api_router.post("/auth/register")
+async def auth_register(body: PasswordAuth, request: Request, response: Response):
+    email = body.email.strip().lower()
+    client_ip = request.client.host if request.client else "?"
+    logger.info(f"[auth/register] START email_prefix={email[:2]}*** ip={client_ip}")
+    existing = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing and existing.get("password_hash"):
+        logger.info(f"[auth/register] REJECT email already has password, user_id={existing['user_id']}")
+        raise HTTPException(status_code=409,
+                            detail="An account with this email already exists. Sign in instead.")
+    pw_hash = _hash_password(body.password)
+    if existing:
+        # User signed up via Google/magic previously — attach a password
+        await db.users.update_one({"user_id": existing["user_id"]}, {"$set": {"password_hash": pw_hash}})
+        logger.info(f"[auth/register] attached password to existing user_id={existing['user_id']}")
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        await db.users.insert_one({
+            "user_id": user_id, "email": email,
+            "name": (body.name or email.split("@")[0]).strip()[:80],
+            "picture": "", "password_hash": pw_hash, "created_at": now_iso(),
+        })
+        logger.info(f"[auth/register] new user_id={user_id}")
+    result = await _login_user(email, body.name or "", "", response)
+    logger.info(f"[auth/register] DONE user_id={result['user_id']}")
+    return result
+
+
+@api_router.post("/auth/login")
+async def auth_login(body: PasswordAuth, request: Request, response: Response):
+    email = body.email.strip().lower()
+    client_ip = request.client.host if request.client else "?"
+    logger.info(f"[auth/login] START email_prefix={email[:2]}*** ip={client_ip}")
+    user = await db.users.find_one({"email": email}, {"_id": 0})
+    if not user or not user.get("password_hash"):
+        logger.info(f"[auth/login] REJECT no such user or no password: email_prefix={email[:2]}***")
+        raise HTTPException(status_code=401, detail="Incorrect email or password.")
+    if not _verify_password(body.password, user["password_hash"]):
+        logger.info(f"[auth/login] REJECT bad password user_id={user['user_id']}")
+        raise HTTPException(status_code=401, detail="Incorrect email or password.")
+    result = await _login_user(email, user.get("name", ""), user.get("picture", ""), response)
+    logger.info(f"[auth/login] DONE user_id={result['user_id']}")
+    return result
+
+
 @api_router.get("/auth/me")
 async def auth_me(user: User = Depends(get_current_user)):
     return user
@@ -426,9 +755,16 @@ async def auth_me(user: User = Depends(get_current_user)):
 
 @api_router.post("/auth/logout")
 async def auth_logout(request: Request, response: Response):
-    token = request.cookies.get("session_token")
+    # Accept either the cookie or an Authorization: Bearer token, so this
+    # works for both cookie-based and Bearer-based clients.
+    token = request.cookies.get("session_token") or ""
+    if not token:
+        header_auth = request.headers.get("authorization", "")
+        if header_auth.lower().startswith("bearer "):
+            token = header_auth[7:].strip()
     if token:
         await db.user_sessions.delete_one({"session_token": token})
+        logger.info(f"[auth/logout] session revoked token_prefix={token[:8]}...")
     response.delete_cookie("session_token", path="/")
     return {"ok": True}
 
@@ -440,6 +776,14 @@ async def _provider_status():
     return status
 
 
+async def _subscription_status():
+    """Return {'openai': bool, 'anthropic': bool} — only booleans, never tokens."""
+    return {
+        "openai": bool(await get_subscription("openai")),
+        "anthropic": bool(await get_subscription("anthropic")),
+    }
+
+
 @api_router.get("/council")
 async def council(user: User = Depends(get_current_user)):
     members = [await resolved_member(m["id"]) for m in COUNCIL]
@@ -447,13 +791,16 @@ async def council(user: User = Depends(get_current_user)):
     nt = dict(NOTETAKER)
     nt["native_model"] = s.get("notetaker_model") or NOTETAKER["native_model"]
     provider_status = await _provider_status()
+    sub_status = await _subscription_status()
     return {
         "members": members,
         "notetaker": nt,
-        "providers": [{"id": pid, "label": PROVIDERS[pid]["label"], "configured": provider_status[pid]}
+        "providers": [{"id": pid, "label": PROVIDERS[pid]["label"], "configured": provider_status[pid],
+                       "subscription_supported": pid in ("openai", "anthropic"),
+                       "subscription_configured": sub_status.get(pid, False)}
                       for pid in PROVIDERS],
         "openrouter_configured": bool(await get_openrouter_key()),
-        "any_provider_configured": any(provider_status.values()),
+        "any_provider_configured": any(provider_status.values()) or any(sub_status.values()),
     }
 
 
@@ -463,12 +810,41 @@ async def read_settings(user: User = Depends(get_current_user)):
     return {
         "openrouter_configured": bool(await get_openrouter_key()),
         "providers_configured": await _provider_status(),
+        "subscriptions_configured": await _subscription_status(),
         "models": s.get("models", {}),
         "native_models": s.get("native_models", {}),
         "routing": s.get("routing", {}),
         "personas": s.get("personas", {}),
         "notetaker_model": s.get("notetaker_model") or NOTETAKER["native_model"],
     }
+
+
+def _normalise_openai_codex_blob(raw: dict) -> Optional[dict]:
+    """Accept either a hand-filled dict OR the raw contents of ~/.codex/auth.json.
+    Returns {access_token, refresh_token?, account_id?, expires_at?} or None."""
+    if not isinstance(raw, dict):
+        return None
+    # `~/.codex/auth.json` shape: {"OPENAI_API_KEY": null, "tokens": {"id_token", "access_token", "refresh_token", "account_id"}, "last_refresh": ...}
+    tokens = raw.get("tokens") if "tokens" in raw else raw
+    if not isinstance(tokens, dict):
+        return None
+    access = tokens.get("access_token")
+    if not access:
+        return None
+    blob = {"access_token": access}
+    if tokens.get("refresh_token"):
+        blob["refresh_token"] = tokens["refresh_token"]
+    acct = tokens.get("account_id") or raw.get("account_id")
+    if acct:
+        blob["account_id"] = acct
+    if raw.get("last_refresh"):
+        # Assume token is fresh at last_refresh — refresh proactively after 45 min.
+        try:
+            base = datetime.fromisoformat(raw["last_refresh"].replace("Z", "+00:00"))
+            blob["expires_at"] = (base + timedelta(minutes=45)).isoformat()
+        except Exception:
+            pass
+    return blob
 
 
 @api_router.post("/settings")
@@ -483,6 +859,31 @@ async def update_settings(body: SettingsUpdate, user: User = Depends(get_current
             if k in PROVIDERS and v and v.strip():
                 pk[k] = v.strip()
         update["provider_keys"] = pk
+    if body.subscription_tokens is not None:
+        s = await get_settings()
+        subs = dict(s.get("subscription_tokens", {}) or {})
+        for pid, blob in body.subscription_tokens.items():
+            if pid not in ("openai", "anthropic"):
+                continue
+            if blob is None or (isinstance(blob, dict) and not blob):
+                # Explicit deletion
+                subs.pop(pid, None)
+                logger.info(f"[settings] subscription cleared for {pid} user_id={user.user_id}")
+                continue
+            if pid == "anthropic":
+                token = blob.get("access_token") or blob.get("token") if isinstance(blob, dict) else str(blob)
+                if not token or not token.strip():
+                    continue
+                subs[pid] = {"access_token": token.strip()}
+                logger.info(f"[settings] subscription set for anthropic user_id={user.user_id} "
+                            f"prefix={token[:12]}...")
+            elif pid == "openai":
+                norm = _normalise_openai_codex_blob(blob)
+                if norm:
+                    subs[pid] = norm
+                    logger.info(f"[settings] subscription set for openai user_id={user.user_id} "
+                                f"prefix={norm['access_token'][:10]}... has_refresh={bool(norm.get('refresh_token'))}")
+        update["subscription_tokens"] = subs
     if body.models is not None:
         update["models"] = body.models
     if body.native_models is not None:
@@ -494,8 +895,10 @@ async def update_settings(body: SettingsUpdate, user: User = Depends(get_current
     if body.personas is not None:
         update["personas"] = body.personas
     await db.settings.update_one({"_id": user.user_id}, {"$set": update}, upsert=True)
-    return {"ok": True, "openrouter_configured": bool(await get_openrouter_key()),
-            "providers_configured": await _provider_status()}
+    return {"ok": True,
+            "openrouter_configured": bool(await get_openrouter_key()),
+            "providers_configured": await _provider_status(),
+            "subscriptions_configured": await _subscription_status()}
 
 
 @api_router.get("/openrouter/models")
@@ -818,6 +1221,7 @@ async def synthesize(sid: str, body: SynthesizeRequest, user: User = Depends(get
         )
         if member.get("persona"):
             system += f" Persona: {member['persona']}"
+        txt = ""
         try:
             txt = await generate(member, system, f"Question: {question}", max_tokens=600)
         except HTTPException:
