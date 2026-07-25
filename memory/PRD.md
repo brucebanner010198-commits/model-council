@@ -35,5 +35,12 @@ A "model council" of frontier models where a human is a member. Human and models
 - **One-click PDF export** (transcript + Scribe notes + standings + verdict) via reportlab.
 - Dedicated always-on Scribe note-taker; assignable conclusion drafter; personas; editable model IDs.
 
+## Model routing (subscription-first)
+- Each council model runs on the user's own **provider subscription/API key** (OpenAI, Anthropic, Google Gemini, DeepSeek, Moonshot/Kimi) via native OpenAI-compatible endpoints.
+- **OpenRouter is a per-model fallback** — used only for the specific model whose subscription key is missing or errors.
+- Per-model routing choice in Settings: `auto` (subscription→OpenRouter) | `direct` | `openrouter`. Editable native + OpenRouter model IDs per member.
+- Keys stored server-side, never returned by the API (verified, 27/27 backend tests).
+
 ## Next Tasks
-1. User adds their OpenRouter key in Settings to activate all live model flows.
+1. User adds provider subscription key(s) and/or an OpenRouter key in Settings to activate live flows.
+2. (Offered) Add authentication (JWT or Emergent Google login) before sharing — closes the cost-abuse vector properly.
