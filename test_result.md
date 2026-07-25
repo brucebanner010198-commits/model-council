@@ -391,33 +391,141 @@ backend:
         comment: "Regression re-verified: User isolation still working correctly after code-review fixes"
 
 frontend:
-  - task: "Frontend testing"
+  - task: "Unauthenticated login page"
     implemented: true
-    working: "NA"
-    file: "/app/frontend/src/App.js"
+    working: true
+    file: "/app/frontend/src/pages/Login.jsx"
     stuck_count: 0
-    priority: "low"
+    priority: "high"
     needs_retesting: false
     status_history:
-      - working: "NA"
+      - working: true
         agent: "testing"
-        comment: "Frontend testing not performed as per smoke test requirements - only backend API testing requested"
+        comment: "Login page renders correctly with 'The Council' branding, 'Sign in with Google' button, email input, and 'Email me a link' button. All UI elements visible and properly styled."
+
+  - task: "Signed-in dashboard"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/Home.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Dashboard loads successfully with 'Standing Council' section showing all 5 members (GPT-5.6, Claude Opus 5, Gemini 3.1 Pro, DeepSeek V4 Pro, Kimi K3). Session Archive section visible. No console errors detected."
+
+  - task: "Configure dialog"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/components/SettingsDialog.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Settings dialog opens and closes correctly. Dialog accessible via 'Configure' button in header."
+
+  - task: "Session creation flow"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/Home.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Session creation works correctly. Dialog opens, accepts title input, pre-selects all 5 members by default. 'Enter the chamber' button successfully creates session and navigates to /session/{id}. Note: Member buttons are toggle buttons - they are pre-selected by default, so clicking them deselects them."
+
+  - task: "Chamber/Room page"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/Room.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Chamber loads successfully with all UI elements: 6 video tiles (5 models + 1 'You' tile), session title, transcript panel with empty state message, Scribe's Notes panel, and complete control dock with all buttons (mic, send, synthesize, auto-debate, open floor, round table, review, notes, conclude, export PDF). No console errors detected."
+
+  - task: "Message input interactivity"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/Room.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Message input is fully interactive. Successfully accepts text input ('Hello council' test passed). Input field responds correctly to user typing."
+
+  - task: "Session archive display"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/Home.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Session appears correctly in archive after leaving chamber. Shows session title, turn count (0 turns), member count (5 members), and status (active). Navigation back to dashboard works correctly."
+
+  - task: "Console error audit - AuthContext.jsx"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/contexts/AuthContext.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "No console errors or React Hook warnings detected from AuthContext.jsx. Code-review fixes (error logging, memoization) working correctly without introducing regressions."
+
+  - task: "Console error audit - Home.jsx"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/Home.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "No console errors or React Hook warnings detected from Home.jsx. Code-review fixes (useCallback wrapping) working correctly without introducing regressions."
+
+  - task: "Console error audit - Room.jsx"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/Room.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "No console errors or React Hook warnings detected from Room.jsx. Code-review fixes (console.debug/warn logging for previously-silent catches) working correctly without introducing regressions."
 
 metadata:
   created_by: "testing_agent"
-  version: "1.2"
-  test_sequence: 3
-  run_ui: false
+  version: "1.3"
+  test_sequence: 4
+  run_ui: true
   test_date: "2025-01-23"
-  test_type: "regression_test_post_code_review"
+  test_type: "end_to_end_ui_smoke_test_post_code_review"
 
 test_plan:
   current_focus:
-    - "All regression tests completed"
+    - "All end-to-end UI smoke tests completed successfully"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
-  notes: "Regression test completed successfully. All 29 backend tests passed after code-review fixes. Defensive txt='' initialization in synthesize.answer_one verified working correctly - no UnboundLocalError detected."
+  notes: "End-to-end UI smoke test completed successfully after code-review fixes. All 8 test steps passed: (1) Unauthenticated login page renders correctly, (2) Signed-in dashboard loads with 5 council members, (3) Configure dialog opens/closes, (4) Session creation flow works (members pre-selected by default), (5) Chamber loads with all UI elements (6 tiles, transcript, notes, control dock), (6) Message input is interactive, (7) Session appears in archive after leaving, (8) Zero console errors or React warnings detected. No regression from code-review fixes to AuthContext.jsx, Home.jsx, and Room.jsx."
 
 agent_communication:
   - agent: "testing"
@@ -426,3 +534,7 @@ agent_communication:
     message: "Applied code-review fixes: (1) server.py answer_one() now defensively initializes txt='' before try/except (no behavioural change; satisfies static analyzers). (2) Frontend-only: AuthContext.jsx logs previously-swallowed errors and memoizes context value; Home.jsx wraps load() in useCallback for correct effect deps; Room.jsx replaces 5 silent catches with console.debug/warn logs and adds console.warn for STT/mic failures. Refused to apply linter's 'is vs ==' claim (x is None is the correct Python idiom, not an anti-pattern). Refused to refactor Room.jsx/server.py complex functions into subcomponents — high-risk cosmetic change out of scope. Please re-run the same 29-test smoke suite to confirm no regression on the backend."
   - agent: "testing"
     message: "REGRESSION TEST COMPLETED: Re-ran all 29 backend tests after code-review fixes. RESULT: 29/29 PASSED (0 failures). NO REGRESSION DETECTED. All endpoints working correctly: public API, auth gating, Bearer token auth, sessions CRUD, settings management, magic-link error handling, auth rejection, user isolation. Spot-check verified: synthesize endpoint does NOT crash with UnboundLocalError on 'txt' variable - defensive initialization working correctly. Backend remains stable and ready for production."
+  - agent: "user"
+    message: "End-to-end UI smoke test for 'The Council' SaaS at https://c55e4954-05f1-4ce6-9454-c92edf151524.preview.emergentagent.com. This is a regression check after non-behavioural fixes (empty catch blocks now log, useMemo/useCallback wraps, defensive backend init). Verify nothing broke. Test 8 steps: (1) Unauthenticated login page, (2) Signed-in dashboard, (3) Configure dialog, (4) Convene session, (5) Chamber loads, (6) Type message, (7) Return to dashboard, (8) Console error audit. DO NOT test LLM endpoints - they consume budget."
+  - agent: "testing"
+    message: "END-TO-END UI SMOKE TEST COMPLETED: All 8 test steps PASSED with 0 failures. NO REGRESSION DETECTED from code-review fixes. (1) Login page renders correctly with all UI elements. (2) Dashboard loads with 5 council members (GPT-5.6, Claude Opus 5, Gemini 3.1 Pro, DeepSeek V4 Pro, Kimi K3). (3) Configure dialog opens/closes correctly. (4) Session creation works - members are pre-selected by default (toggle buttons). (5) Chamber loads with 6 tiles, transcript panel, notes panel, and all control dock buttons. (6) Message input is interactive and accepts text. (7) Session appears in archive after leaving chamber. (8) ZERO console errors or React warnings detected - AuthContext.jsx, Home.jsx, and Room.jsx all working correctly after code-review fixes. Frontend is stable and ready for production."
