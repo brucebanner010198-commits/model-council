@@ -1,6 +1,6 @@
 # Docs deployment
 
-The user documentation is built from ``docs/source/`` with Sphinx (Furo theme). It's designed to be deployed automatically — pick either provider below.
+The user documentation is built from ``docs/source/`` with Sphinx (Furo theme). It's designed to be deployed automatically. Pick either provider below.
 
 ## GitHub Pages (recommended, wired up already)
 
@@ -14,7 +14,7 @@ A workflow lives at ``.github/workflows/docs.yml``. On every push:
 
 1. Push this repo to GitHub.
 2. In the repo: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-3. Push (or merge) to ``main`` — the workflow will run and publish to
+3. Push (or merge) to ``main``. The workflow will run and publish to
    ``https://<user>.github.io/<repo>/``.
 
 The workflow's `deploy` job only runs on `main`, so:
@@ -61,7 +61,7 @@ Set **Root directory** to ``docs`` and add these settings:
 
 * Build command: ``pip install -r requirements.txt && sphinx-build -b html source build/html``
 * Output directory: ``build/html``
-* Install command: ``pip --version`` (Vercel needs *some* install command — pip's already on the Python image).
+* Install command: ``pip --version`` (Vercel needs *some* install command; pip's already on the Python image).
 
 ## Custom domain
 

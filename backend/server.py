@@ -305,7 +305,7 @@ async def call_anthropic_subscription(access_token: str, model: str, messages: l
 
 
 # ---------------- OpenAI ChatGPT Plus/Pro subscription (Codex CLI OAuth) ----------------
-# Uses undocumented Codex endpoints. Marked experimental — OpenAI can change these.
+# Uses undocumented Codex endpoints. Marked experimental; OpenAI can change these.
 OPENAI_CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
 OPENAI_OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"
 # Codex CLI's client_id (public/PKCE, no secret)
@@ -324,7 +324,7 @@ async def _refresh_openai_codex_token(blob: dict) -> dict:
     Returns an updated blob (also persists it)."""
     rt = (blob or {}).get("refresh_token")
     if not rt:
-        raise ProviderError("Codex refresh_token missing — please re-paste your ~/.codex/auth.json contents")
+        raise ProviderError("Codex refresh_token missing. Please re-paste your ~/.codex/auth.json contents")
     payload = {
         "client_id": OPENAI_CODEX_CLIENT_ID,
         "grant_type": "refresh_token",
@@ -590,7 +590,7 @@ async def auth_session(body: SessionExchange, request: Request, response: Respon
     if r.status_code != 200:
         raise HTTPException(status_code=401,
                             detail=f"Emergent OAuth rejected session_id (upstream {r.status_code}). "
-                                   "It's single-use and expires quickly — please try signing in again.")
+                                   "It's single-use and expires quickly. Please try signing in again.")
     try:
         data = r.json()
     except Exception as exc:
@@ -611,7 +611,7 @@ async def auth_session(body: SessionExchange, request: Request, response: Respon
 @api_router.get("/auth/debug")
 async def auth_debug(request: Request):
     """Non-sensitive diagnostic endpoint for auth troubleshooting.
-    Returns only booleans and prefixes — never leaks tokens or user data."""
+    Returns only booleans and prefixes. Never leaks tokens or user data."""
     cookie = request.cookies.get("session_token") or ""
     header_auth = request.headers.get("authorization", "")
     bearer = ""
@@ -715,7 +715,7 @@ async def auth_register(body: PasswordAuth, request: Request, response: Response
                             detail="An account with this email already exists. Sign in instead.")
     pw_hash = _hash_password(body.password)
     if existing:
-        # User signed up via Google/magic previously — attach a password
+        # User signed up via Google/magic previously. Attach a password
         await db.users.update_one({"user_id": existing["user_id"]}, {"$set": {"password_hash": pw_hash}})
         logger.info(f"[auth/register] attached password to existing user_id={existing['user_id']}")
     else:
@@ -777,7 +777,7 @@ async def _provider_status():
 
 
 async def _subscription_status():
-    """Return {'openai': bool, 'anthropic': bool} — only booleans, never tokens."""
+    """Return {'openai': bool, 'anthropic': bool}. Only booleans, never tokens."""
     return {
         "openai": bool(await get_subscription("openai")),
         "anthropic": bool(await get_subscription("anthropic")),
@@ -838,7 +838,7 @@ def _normalise_openai_codex_blob(raw: dict) -> Optional[dict]:
     if acct:
         blob["account_id"] = acct
     if raw.get("last_refresh"):
-        # Assume token is fresh at last_refresh — refresh proactively after 45 min.
+        # Assume token is fresh at last_refresh; refresh proactively after 45 min.
         try:
             base = datetime.fromisoformat(raw["last_refresh"].replace("Z", "+00:00"))
             blob["expires_at"] = (base + timedelta(minutes=45)).isoformat()
@@ -1135,7 +1135,7 @@ async def _compute_review(participants, turns):
     async def review_one(reviewer):
         system = (
             f"You are {reviewer['name']}, acting as an impartial council reviewer. The following positions are "
-            "anonymised — you do not know who authored any of them, so judge them blind, purely on rigour, insight, "
+            "anonymised. You do not know who authored any of them, so judge them blind, purely on rigour, insight, "
             "evidence and truthfulness. Do not show favouritism."
         )
         user = (
@@ -1216,7 +1216,7 @@ async def synthesize(sid: str, body: SynthesizeRequest, user: User = Depends(get
     async def answer_one(member):
         system = (
             f"You are {member['name']} from {member['org']}. Answer the question below independently with your own "
-            "best thinking — you are NOT seeing other models' answers. Be substantive, accurate and well-reasoned. "
+            "best thinking. You are NOT seeing other models' answers. Be substantive, accurate and well-reasoned. "
             "Write in clear prose (no markdown headings, bullet lists, or code fences)."
         )
         if member.get("persona"):
@@ -1227,7 +1227,7 @@ async def synthesize(sid: str, body: SynthesizeRequest, user: User = Depends(get
         except HTTPException:
             raise
         except Exception as e:
-            txt = f"(no answer — {str(e)[:120]})"
+            txt = f"(no answer, {str(e)[:120]})"
         return {"id": str(uuid.uuid4()), "speaker_id": member["id"], "speaker_name": member["name"],
                 "color": member["color"], "text": txt, "ts": now_iso()}
 
@@ -1336,7 +1336,7 @@ async def export_pdf(sid: str, user: User = Depends(get_current_user)):
         for i, s in enumerate(rv["standings"]):
             tag = "  ★ Most convincing" if s["member_id"] == rv.get("mvp_id") else ""
             story.append(Paragraph(
-                f"<b>{i + 1}. {escape(s['name'])}</b> — score {s['score']}/100 · {s['votes']} vote(s){tag}", small))
+                f"<b>{i + 1}. {escape(s['name'])}</b>. Score {s['score']}/100 · {s['votes']} vote(s){tag}", small))
         story.append(Spacer(1, 4))
 
     if doc.get("notes"):
