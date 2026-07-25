@@ -19,6 +19,7 @@ from io import BytesIO
 from datetime import datetime, timezone, timedelta
 import httpx
 import resend
+import bcrypt
 from fastapi.responses import StreamingResponse
 
 from emergentintegrations.llm.openai import OpenAITextToSpeech, OpenAISpeechToText
@@ -102,6 +103,12 @@ class MagicRequest(BaseModel):
 
 class MagicVerify(BaseModel):
     token: str = Field(..., max_length=256)
+
+
+class PasswordAuth(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=128)
+    name: Optional[str] = Field(default=None, max_length=80)
 
 
 async def get_current_user(request: Request) -> User:
@@ -337,32 +344,93 @@ async def _login_user(email: str, name: str, picture: str, response: Response):
             upd["picture"] = picture
         if upd:
             await db.users.update_one({"user_id": user_id}, {"$set": upd})
+        logger.info(f"[auth] existing user matched by email: user_id={user_id}")
     else:
         user_id = f"user_{uuid.uuid4().hex[:12]}"
         await db.users.insert_one({"user_id": user_id, "email": email,
                                    "name": name or email.split("@")[0], "picture": picture or "",
                                    "created_at": now_iso()})
+        logger.info(f"[auth] new user created: user_id={user_id}")
     session_token = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + timedelta(days=7)
     await db.user_sessions.insert_one({"user_id": user_id, "session_token": session_token,
                                        "expires_at": expires_at.isoformat(), "created_at": now_iso()})
     response.set_cookie("session_token", session_token, httponly=True, secure=True,
                         samesite="none", path="/", max_age=7 * 24 * 3600)
+    logger.info(f"[auth] session cookie set: user_id={user_id} token_prefix={session_token[:8]}...")
     u = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    return {"user_id": user_id, "email": email, "name": u.get("name", ""), "picture": u.get("picture", "")}
+    # Also return the token so browsers that block third-party / cross-site
+    # cookies can fall back to Authorization: Bearer <token>.
+    return {"user_id": user_id, "email": email, "name": u.get("name", ""),
+            "picture": u.get("picture", ""), "session_token": session_token}
 
 
 @api_router.post("/auth/session")
-async def auth_session(body: SessionExchange, response: Response):
-    async with httpx.AsyncClient(timeout=30) as hc:
-        r = await hc.get(EMERGENT_AUTH_URL, headers={"X-Session-ID": body.session_id})
+async def auth_session(body: SessionExchange, request: Request, response: Response):
+    sid = body.session_id or ""
+    sid_prefix = sid[:8] + "..." if sid else "(empty)"
+    client_ip = request.client.host if request.client else "?"
+    origin = request.headers.get("origin", "?")
+    logger.info(f"[auth/session] START sid_prefix={sid_prefix} sid_len={len(sid)} "
+                f"client_ip={client_ip} origin={origin}")
+    if not sid:
+        logger.warning("[auth/session] REJECT empty session_id")
+        raise HTTPException(status_code=400, detail="session_id is required")
+    try:
+        async with httpx.AsyncClient(timeout=30) as hc:
+            r = await hc.get(EMERGENT_AUTH_URL, headers={"X-Session-ID": sid})
+    except httpx.HTTPError as exc:
+        logger.error(f"[auth/session] Emergent /session-data HTTP error: {type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=502, detail=f"Auth provider unreachable: {type(exc).__name__}")
+    body_sample = (r.text or "")[:200].replace("\n", " ")
+    logger.info(f"[auth/session] Emergent /session-data → status={r.status_code} body_sample={body_sample!r}")
     if r.status_code != 200:
-        raise HTTPException(status_code=401, detail="Invalid or expired session_id")
-    data = r.json()
+        raise HTTPException(status_code=401,
+                            detail=f"Emergent OAuth rejected session_id (upstream {r.status_code}). "
+                                   "It's single-use and expires quickly — please try signing in again.")
+    try:
+        data = r.json()
+    except Exception as exc:
+        logger.error(f"[auth/session] Emergent returned non-JSON: {exc}")
+        raise HTTPException(status_code=502, detail="Auth provider returned malformed response")
     email = data.get("email")
+    # Mask email for privacy in logs
+    email_masked = (email[:2] + "***@" + email.split("@", 1)[1]) if email and "@" in email else "(none)"
+    logger.info(f"[auth/session] session-data OK email={email_masked} "
+                f"name={data.get('name', '(none)')!r}")
     if not email:
         raise HTTPException(status_code=401, detail="No email in session data")
-    return await _login_user(email, data.get("name", ""), data.get("picture", ""), response)
+    result = await _login_user(email, data.get("name", ""), data.get("picture", ""), response)
+    logger.info(f"[auth/session] DONE user_id={result['user_id']}")
+    return result
+
+
+@api_router.get("/auth/debug")
+async def auth_debug(request: Request):
+    """Non-sensitive diagnostic endpoint for auth troubleshooting.
+    Returns only booleans and prefixes — never leaks tokens or user data."""
+    cookie = request.cookies.get("session_token") or ""
+    header_auth = request.headers.get("authorization", "")
+    bearer = ""
+    if header_auth.lower().startswith("bearer "):
+        bearer = header_auth[7:].strip()
+    token = cookie or bearer
+    session_row = None
+    if token:
+        session_row = await db.user_sessions.find_one({"session_token": token}, {"_id": 0, "session_token": 0})
+    return {
+        "server_time": now_iso(),
+        "origin": request.headers.get("origin", ""),
+        "referer": (request.headers.get("referer") or "")[:80],
+        "cookie_present": bool(cookie),
+        "cookie_prefix": (cookie[:8] + "...") if cookie else "",
+        "bearer_present": bool(bearer),
+        "bearer_prefix": (bearer[:8] + "...") if bearer else "",
+        "session_found": bool(session_row),
+        "session_expires_at": session_row.get("expires_at") if session_row else None,
+        "emergent_llm_key_configured": bool(os.environ.get("EMERGENT_LLM_KEY")),
+        "resend_configured": bool(os.environ.get("RESEND_API_KEY")),
+    }
 
 
 @api_router.post("/auth/magic/request")
@@ -417,6 +485,64 @@ async def magic_verify(body: MagicVerify, response: Response):
         raise HTTPException(status_code=400, detail="This sign-in link has expired. Please request a new one.")
     await db.magic_links.update_one({"_id": doc["_id"]}, {"$set": {"used": True}})
     return await _login_user(doc["email"], "", "", response)
+
+
+def _hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
+
+
+def _verify_password(password: str, hashed: str) -> bool:
+    if not hashed:
+        return False
+    try:
+        return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
+    except (ValueError, TypeError):
+        return False
+
+
+@api_router.post("/auth/register")
+async def auth_register(body: PasswordAuth, request: Request, response: Response):
+    email = body.email.strip().lower()
+    client_ip = request.client.host if request.client else "?"
+    logger.info(f"[auth/register] START email_prefix={email[:2]}*** ip={client_ip}")
+    existing = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing and existing.get("password_hash"):
+        logger.info(f"[auth/register] REJECT email already has password, user_id={existing['user_id']}")
+        raise HTTPException(status_code=409,
+                            detail="An account with this email already exists. Sign in instead.")
+    pw_hash = _hash_password(body.password)
+    if existing:
+        # User signed up via Google/magic previously — attach a password
+        await db.users.update_one({"user_id": existing["user_id"]}, {"$set": {"password_hash": pw_hash}})
+        logger.info(f"[auth/register] attached password to existing user_id={existing['user_id']}")
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        await db.users.insert_one({
+            "user_id": user_id, "email": email,
+            "name": (body.name or email.split("@")[0]).strip()[:80],
+            "picture": "", "password_hash": pw_hash, "created_at": now_iso(),
+        })
+        logger.info(f"[auth/register] new user_id={user_id}")
+    result = await _login_user(email, body.name or "", "", response)
+    logger.info(f"[auth/register] DONE user_id={result['user_id']}")
+    return result
+
+
+@api_router.post("/auth/login")
+async def auth_login(body: PasswordAuth, request: Request, response: Response):
+    email = body.email.strip().lower()
+    client_ip = request.client.host if request.client else "?"
+    logger.info(f"[auth/login] START email_prefix={email[:2]}*** ip={client_ip}")
+    user = await db.users.find_one({"email": email}, {"_id": 0})
+    if not user or not user.get("password_hash"):
+        logger.info(f"[auth/login] REJECT no such user or no password: email_prefix={email[:2]}***")
+        raise HTTPException(status_code=401, detail="Incorrect email or password.")
+    if not _verify_password(body.password, user["password_hash"]):
+        logger.info(f"[auth/login] REJECT bad password user_id={user['user_id']}")
+        raise HTTPException(status_code=401, detail="Incorrect email or password.")
+    result = await _login_user(email, user.get("name", ""), user.get("picture", ""), response)
+    logger.info(f"[auth/login] DONE user_id={result['user_id']}")
+    return result
 
 
 @api_router.get("/auth/me")
