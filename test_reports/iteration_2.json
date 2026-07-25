@@ -1,0 +1,30 @@
+{
+  "summary": "Iteration 2 covered the new additive features (Auto-debate, blind peer review 'Council Standings', Perplexity-style Synthesize, PDF export, per-turn voice replay) plus regressions. Backend: 14/14 pytest tests pass (added test_tts_ok, test_review_requires_two_speakers, test_synthesize_without_openrouter_key, test_synthesize_bad_chairman, test_export_pdf, test_export_not_found). Frontend: full Playwright sweep on /session/<id> — all dock buttons render (synthesize-btn, auto-debate-btn, rounds-select, open-floor-btn, round-table-btn, review-btn, notes-btn, conclude-btn, export-btn, mute-toggle, mic-btn, send-btn, message-input); rounds-select cycles 2r→3r→4r→1r→2r; Synthesize dialog opens with 5/5 chairman-<id> and question defaults to session title; Peer review with no turns surfaces the 'two members must speak' toast; Auto-debate without an OpenRouter key surfaces graceful error, stop-debate-btn appeared transiently and reverted to auto-debate-btn; Conclude picker still lists 5/5 draft-with-<id> (no regression); Export PDF opens a new tab hitting /api/sessions/{id}/export which returns 200 application/pdf (1911 bytes, starts %PDF-1.4); mute-toggle flips 'voices on'↔'voices off'; message-input focuses and accepts typing; leave-btn present. No crashes anywhere; no unexpected console errors beyond the intended 400s for missing OpenRouter key.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Room dialogs", "issues": ["Radix DialogContent a11y warning still applies to Conclude Drafter dialog (already reported in iteration 1). Chairman picker and Council Standings dialogs correctly include DialogDescription."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Optional: Home 'Convene a council' button has no data-testid (test had to fall back to text selector 'Convene a council'). Add data-testid=\"convene-btn\" to the primary CTA on Home for stable e2e selectors.",
+    "Optional a11y: add DialogDescription to the 'Assign the conclusion drafter' dialog (Radix warning)."
+  ],
+  "critical_code_review_comments": [
+    "server.py /tts hides all failure modes under a generic 500 'Voice generation failed'; consider surfacing the underlying reason (rate limit vs bad voice) in logs at ERROR level (currently WARNING).",
+    "Room.jsx runSynthesize sets thinking=chairmanId but on catch resets to null — good. However when synthesis fails BEFORE any answers are produced, no partial answers are appended (correct); confirmed graceful.",
+    "Frontend uses window.open(exportUrl(id), '_blank') — most browsers open PDF inline which works, but Playwright's 'expect_page' -> wait_for_load_state('domcontentloaded') can time out because PDF response has no DOM. Not a bug, but tests should verify via page.request.get instead of relying on popup load state.",
+    "reportlab imports are done lazily inside export_pdf — good for cold-start cost, but consider moving to module-level to fail fast at import time.",
+    "server.py:121 HTTP-Referer hardcoded preview URL (same note carried from iteration 1)."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "None (no auth). OpenRouter key intentionally absent — negative-path tests. EMERGENT_LLM_KEY present and TTS verified working end-to-end.",
+  "seed_data_creation": "One TEST session created via API (TEST_new_features_flow) for the frontend flow; deleted at end. Pytest module fixture also creates/deletes TEST_new_features_session and TEST_should_we_ship_agents.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 2 fully covers new endpoints /api/sessions/{id}/review, /api/sessions/{id}/synthesize, /api/tts, /api/sessions/{id}/export and their UI counterparts. To exercise live model text (round-table, synthesize success path, review with content, auto-debate), set an OpenRouter key via POST /api/settings {\"openrouter_key\":\"...\"}. Home CTA lacks data-testid — see action_items. Direct navigation to /session/<id> is a reliable shortcut when scripting."
+}

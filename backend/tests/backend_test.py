@@ -163,3 +163,60 @@ def test_stt(s):
     assert r.status_code in (200, 400, 500)
     if r.status_code == 200:
         assert "text" in r.json()
+
+
+# ---------- TTS (Emergent key expected) ----------
+def test_tts_ok(s):
+    r = s.post(f"{API}/tts", json={"text": "Hello from council.", "member_id": "gpt"})
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert "audio_base64" in data
+    assert isinstance(data["audio_base64"], str) and len(data["audio_base64"]) > 100
+
+
+# ---------- New session-scoped: review / synthesize / export ----------
+@pytest.fixture(scope="module")
+def new_session(s):
+    sess = s.post(f"{API}/sessions", json={
+        "title": "TEST_new_features_session",
+        "participant_ids": ["gpt", "claude", "gemini", "deepseek", "kimi"],
+    }).json()
+    sid = sess["id"]
+    yield sid
+    s.delete(f"{API}/sessions/{sid}")
+
+
+def test_review_requires_two_speakers(s, new_session):
+    # No turns yet -> should 400 "At least two members must speak..."
+    r = s.post(f"{API}/sessions/{new_session}/review")
+    assert r.status_code == 400
+    detail = r.json().get("detail", "")
+    assert "two members" in detail.lower()
+
+
+def test_synthesize_without_openrouter_key(s, new_session):
+    r = s.post(f"{API}/sessions/{new_session}/synthesize", json={"chairman_id": "gpt"})
+    # No OpenRouter key -> graceful 400
+    assert r.status_code in (400, 502), r.text
+
+
+def test_synthesize_bad_chairman(s, new_session):
+    r = s.post(f"{API}/sessions/{new_session}/synthesize", json={"chairman_id": "nobody"})
+    assert r.status_code == 400
+
+
+def test_export_pdf(s, new_session):
+    # Add a couple of human turns
+    s.post(f"{API}/sessions/{new_session}/message", json={"text": "First message."})
+    s.post(f"{API}/sessions/{new_session}/message", json={"text": "Second message."})
+    r = s.get(f"{API}/sessions/{new_session}/export")
+    assert r.status_code == 200
+    ct = r.headers.get("content-type", "")
+    assert "application/pdf" in ct, f"unexpected content-type: {ct}"
+    assert r.content[:4] == b"%PDF", "response is not a valid PDF"
+    assert len(r.content) > 500
+
+
+def test_export_not_found(s):
+    r = s.get(f"{API}/sessions/nope-xyz/export")
+    assert r.status_code == 404

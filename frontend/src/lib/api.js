@@ -21,6 +21,12 @@ export const respond = (id, model_id, directive) =>
 export const refreshNotes = (id) => client.post(`/sessions/${id}/notes`).then((r) => r.data);
 export const concludeSession = (id, drafter_id) =>
   client.post(`/sessions/${id}/conclude`, { drafter_id }).then((r) => r.data);
+export const reviewSession = (id) => client.post(`/sessions/${id}/review`).then((r) => r.data);
+export const synthesize = (id, chairman_id, question) =>
+  client.post(`/sessions/${id}/synthesize`, { chairman_id, question }).then((r) => r.data);
+export const ttsSpeak = (text, member_id) =>
+  client.post(`/tts`, { text, member_id }).then((r) => r.data);
+export const exportUrl = (id) => `${API}/sessions/${id}/export`;
 
 export const transcribe = (blob) => {
   const fd = new FormData();

@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   getSession, getCouncil, sendMessage, respond, refreshNotes, concludeSession, transcribe,
+  reviewSession, synthesize, ttsSpeak, exportUrl,
 } from "../lib/api";
 import { VideoTile } from "../components/VideoTile";
 import { Button } from "../components/ui/button";
@@ -10,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { toast } from "sonner";
 import {
   Mic, Square, Send, Users2, PhoneOff, NotebookPen, Gavel, Play, Loader2, FileText,
+  Swords, Trophy, Download, Sparkles, Volume2, StopCircle, Medal,
 } from "lucide-react";
 
 export default function Room() {
@@ -25,11 +27,17 @@ export default function Room() {
   const [transcribing, setTranscribing] = useState(false);
   const [concludeOpen, setConcludeOpen] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [debating, setDebating] = useState(false);
+  const [rounds, setRounds] = useState(2);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [synthOpen, setSynthOpen] = useState(false);
+  const [playingId, setPlayingId] = useState(null);
 
   const transcriptRef = useRef(null);
   const mediaRef = useRef(null);
   const chunksRef = useRef([]);
   const audioRef = useRef(null);
+  const stopRef = useRef(false);
 
   const participants = session
     ? session.participant_ids.map((pid) => members.find((m) => m.id === pid)).filter(Boolean)
@@ -159,6 +167,80 @@ export default function Room() {
     } finally { setThinking(null); setBusy(false); }
   };
 
+  const autoDebate = async () => {
+    if (busy) return;
+    stopRef.current = false;
+    setBusy(true);
+    setDebating(true);
+    const dir =
+      "This is a live council debate. Critically engage with what others have just said — challenge weak points " +
+      "by name, defend or sharpen your own view, and drive toward the strongest possible answer. Be candid and concise.";
+    try {
+      if (input.trim()) await sendHuman();
+      outer: for (let r = 0; r < rounds; r++) {
+        for (const p of participants) {
+          if (stopRef.current) break outer;
+          await makeRespond(p.id, dir);
+        }
+      }
+      await doNotes();
+    } catch (_) {} finally { setDebating(false); setBusy(false); }
+  };
+
+  const stopDebate = () => { stopRef.current = true; };
+
+  const runReview = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const rv = await reviewSession(id);
+      setSession((s) => ({ ...s, review: rv }));
+      setReviewOpen(true);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Peer review failed");
+    } finally { setBusy(false); }
+  };
+
+  const runSynthesize = async (chairmanId) => {
+    setSynthOpen(false);
+    setBusy(true);
+    setThinking(chairmanId);
+    const q = input.trim() || session.title;
+    setInput("");
+    try {
+      const res = await synthesize(id, chairmanId, input.trim() || null);
+      setSession((s) => ({
+        ...s,
+        turns: [...s.turns, ...res.answers],
+        review: res.review || s.review,
+        synthesis: res.synthesis,
+      }));
+      toast.success(`${res.synthesis.chairman_name} synthesised the council's answer`);
+      if (!muted) await playBlob(res.synthesis.text, chairmanId);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Synthesis failed");
+    } finally { setThinking(null); setBusy(false); }
+  };
+
+  const playBlob = async (text, memberId) => {
+    try {
+      setPlayingId(memberId);
+      const res = await ttsSpeak(text, memberId);
+      await new Promise((resolve) => {
+        const a = new Audio(`data:audio/mp3;base64,${res.audio_base64}`);
+        audioRef.current = a;
+        setActive(memberId);
+        a.onended = () => { setActive(null); resolve(); };
+        a.onerror = () => { setActive(null); resolve(); };
+        a.play().catch(() => { setActive(null); resolve(); });
+      });
+    } catch (_) {} finally { setPlayingId(null); }
+  };
+
+  const doExport = () => {
+    window.open(exportUrl(id), "_blank");
+  };
+
   if (!session) {
     return <div className="flex h-screen items-center justify-center text-zinc-500 font-mono text-sm">Entering the chamber…</div>;
   }
@@ -213,21 +295,50 @@ export default function Room() {
               </button>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button data-testid="synthesize-btn" onClick={() => setSynthOpen(true)} disabled={busy}
+                className="rounded-full bg-white text-black hover:bg-zinc-200 text-xs h-9 font-medium">
+                <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Synthesize answer
+              </Button>
+              {debating ? (
+                <Button data-testid="stop-debate-btn" onClick={stopDebate}
+                  className="rounded-full bg-red-500/90 text-white hover:bg-red-500 text-xs h-9">
+                  <StopCircle className="h-3.5 w-3.5 mr-1.5" /> Stop debate
+                </Button>
+              ) : (
+                <div className="flex items-center rounded-full border border-white/12 h-9 overflow-hidden">
+                  <button data-testid="auto-debate-btn" onClick={autoDebate} disabled={busy}
+                    className="flex items-center gap-1.5 px-3 text-xs text-zinc-300 hover:bg-white/5 h-full transition-colors duration-200">
+                    <Swords className="h-3.5 w-3.5" /> Auto-debate
+                  </button>
+                  <button data-testid="rounds-select" onClick={() => setRounds((r) => (r % 4) + 1)}
+                    className="bg-black/40 text-zinc-400 text-xs h-full px-2.5 border-l border-white/12 hover:text-white transition-colors duration-200 font-mono">
+                    {rounds}r
+                  </button>
+                </div>
+              )}
               <Button data-testid="open-floor-btn" onClick={openFloor} disabled={busy}
                 variant="outline" className="rounded-full border-white/12 bg-transparent text-zinc-300 hover:bg-white/5 hover:text-white text-xs h-9">
-                <Play className="h-3.5 w-3.5 mr-1.5" /> Open the floor
+                <Play className="h-3.5 w-3.5 mr-1.5" /> Open floor
               </Button>
               <Button data-testid="round-table-btn" onClick={() => roundTable()} disabled={busy}
                 variant="outline" className="rounded-full border-white/12 bg-transparent text-zinc-300 hover:bg-white/5 hover:text-white text-xs h-9">
                 <Users2 className="h-3.5 w-3.5 mr-1.5" /> Round table
               </Button>
+              <Button data-testid="review-btn" onClick={runReview} disabled={busy}
+                variant="outline" className="rounded-full border-white/12 bg-transparent text-zinc-300 hover:bg-white/5 hover:text-white text-xs h-9">
+                <Trophy className="h-3.5 w-3.5 mr-1.5" /> Peer review
+              </Button>
               <Button data-testid="notes-btn" onClick={doNotes} disabled={busy}
                 variant="outline" className="rounded-full border-white/12 bg-transparent text-zinc-300 hover:bg-white/5 hover:text-white text-xs h-9">
-                <NotebookPen className="h-3.5 w-3.5 mr-1.5" /> Refresh notes
+                <NotebookPen className="h-3.5 w-3.5 mr-1.5" /> Notes
               </Button>
               <Button data-testid="conclude-btn" onClick={() => setConcludeOpen(true)} disabled={busy}
-                className="rounded-full bg-white/10 text-white hover:bg-white/20 text-xs h-9">
-                <Gavel className="h-3.5 w-3.5 mr-1.5" /> Draft conclusion
+                variant="outline" className="rounded-full border-white/12 bg-transparent text-zinc-300 hover:bg-white/5 hover:text-white text-xs h-9">
+                <Gavel className="h-3.5 w-3.5 mr-1.5" /> Conclude
+              </Button>
+              <Button data-testid="export-btn" onClick={doExport}
+                variant="outline" className="rounded-full border-white/12 bg-transparent text-zinc-300 hover:bg-white/5 hover:text-white text-xs h-9">
+                <Download className="h-3.5 w-3.5 mr-1.5" /> Export PDF
               </Button>
               <button onClick={() => setMuted((m) => !m)} data-testid="mute-toggle"
                 className="text-xs font-mono text-zinc-500 hover:text-white ml-auto">
@@ -252,9 +363,17 @@ export default function Room() {
               <AnimatePresence initial={false}>
                 {session.turns.map((t) => (
                   <motion.div key={t.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                    data-testid={`turn-${t.speaker_id}`}>
-                    <div className="font-mono text-[11px] font-semibold tracking-wide" style={{ color: t.color }}>
-                      {t.speaker_name}
+                    data-testid={`turn-${t.speaker_id}`} className="group">
+                    <div className="flex items-center gap-2">
+                      <div className="font-mono text-[11px] font-semibold tracking-wide" style={{ color: t.color }}>
+                        {t.speaker_name}
+                      </div>
+                      {t.speaker_id !== "human" && (
+                        <button data-testid={`play-turn-${t.id}`} onClick={() => playBlob(t.text, t.speaker_id)}
+                          className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-white transition-opacity duration-200">
+                          {playingId === t.speaker_id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Volume2 className="h-3 w-3" />}
+                        </button>
+                      )}
                     </div>
                     <p className="mt-1 text-sm leading-relaxed text-zinc-300">{t.text}</p>
                   </motion.div>
@@ -279,6 +398,22 @@ export default function Room() {
                     <span>{n.text}</span>
                   </div>
                 ))
+              )}
+              {session.synthesis && (
+                <div className="mt-5 rounded-lg border p-4" data-testid="synthesis-block"
+                  style={{ borderColor: `${session.synthesis.chairman_color}44`, backgroundColor: `${session.synthesis.chairman_color}0f` }}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-widest"
+                      style={{ color: session.synthesis.chairman_color }}>
+                      <Sparkles className="h-3 w-3" /> Synthesised answer · by {session.synthesis.chairman_name}
+                    </div>
+                    <button data-testid="play-synthesis" onClick={() => playBlob(session.synthesis.text, session.synthesis.chairman_id)}
+                      className="text-zinc-400 hover:text-white transition-colors duration-200">
+                      <Volume2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <p className="mt-2 text-sm leading-relaxed text-zinc-200 whitespace-pre-wrap">{session.synthesis.text}</p>
+                </div>
               )}
               {session.conclusion && (
                 <div className="mt-5 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4" data-testid="conclusion-block">
@@ -312,6 +447,69 @@ export default function Room() {
                 </div>
                 <Gavel className="h-4 w-4 text-zinc-500" />
               </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Chairman picker for synthesis (Perplexity-style, additive) */}
+      <Dialog open={synthOpen} onOpenChange={setSynthOpen}>
+        <DialogContent className="bg-[#0a0a0c] border-white/10 text-white">
+          <DialogHeader>
+            <DialogTitle className="font-mono flex items-center gap-2"><Sparkles className="h-4 w-4" /> Synthesize a single answer</DialogTitle>
+            <DialogDescription className="text-zinc-500">
+              Fans your question to all {participants.length} members in parallel, blind-reviews their answers, then the Chairman merges them into one authoritative answer.
+            </DialogDescription>
+          </DialogHeader>
+          <p className="text-sm text-zinc-400 mt-1">
+            Question: <span className="text-zinc-200">{input.trim() || session.title}</span>
+          </p>
+          <div className="text-[11px] uppercase tracking-widest text-zinc-500 mt-3 mb-1">Choose the Chairman</div>
+          <div className="grid gap-2">
+            {participants.map((m) => (
+              <button key={m.id} data-testid={`chairman-${m.id}`} onClick={() => runSynthesize(m.id)}
+                className="flex items-center justify-between rounded-lg border border-white/10 p-3 text-left hover:bg-white/5 transition-colors duration-200"
+                style={{ borderLeft: `3px solid ${m.color}` }}>
+                <div>
+                  <div className="font-mono text-sm" style={{ color: m.color }}>{m.name}</div>
+                  <div className="text-[11px] text-zinc-500">{m.specialty}</div>
+                </div>
+                <Sparkles className="h-4 w-4 text-zinc-500" />
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Council standings from blind peer review */}
+      <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
+        <DialogContent className="bg-[#0a0a0c] border-white/10 text-white max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-mono flex items-center gap-2"><Trophy className="h-4 w-4" /> Council Standings</DialogTitle>
+            <DialogDescription className="text-zinc-500">
+              Each member blind-ranked the others' latest positions (identities hidden) on rigour & insight.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 mt-1">
+            {session.review?.standings?.map((s, i) => (
+              <div key={s.member_id} data-testid={`standing-${s.member_id}`} className="rounded-lg bg-black/40 p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs text-zinc-500">{i + 1}</span>
+                    <span className="font-mono text-sm font-semibold" style={{ color: s.color }}>{s.name}</span>
+                    {s.member_id === session.review.mvp_id && (
+                      <span className="flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[9px] font-mono uppercase tracking-wider text-amber-300">
+                        <Medal className="h-3 w-3" /> most convincing
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-mono text-xs text-zinc-400">{s.votes} vote{s.votes === 1 ? "" : "s"}</span>
+                </div>
+                <div className="mt-2 h-1.5 w-full rounded-full bg-white/8 overflow-hidden">
+                  <motion.div className="h-full rounded-full" style={{ backgroundColor: s.color }}
+                    initial={{ width: 0 }} animate={{ width: `${s.score}%` }} transition={{ duration: 0.6 }} />
+                </div>
+              </div>
             ))}
           </div>
         </DialogContent>

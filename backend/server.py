@@ -4,13 +4,18 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import asyncio
 import tempfile
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import uuid
+import json
+import random
+from io import BytesIO
 from datetime import datetime, timezone
 import httpx
+from fastapi.responses import StreamingResponse
 
 from emergentintegrations.llm.openai import OpenAITextToSpeech, OpenAISpeechToText
 
@@ -377,6 +382,279 @@ async def speech_to_text(audio: UploadFile = File(...)):
             os.remove(tmp_path)
         except OSError:
             pass
+
+
+def _parse_json(raw: str):
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        if raw.lower().startswith("json"):
+            raw = raw[4:]
+    start, end = raw.find("{"), raw.rfind("}")
+    if start != -1 and end != -1:
+        raw = raw[start:end + 1]
+    return json.loads(raw)
+
+
+async def _compute_review(participants, turns):
+    """Blind peer review over each member's latest statement in `turns`."""
+    positions = []
+    for p in participants:
+        last = None
+        for t in turns:
+            if t["speaker_id"] == p["id"]:
+                last = t["text"]
+        if last:
+            positions.append({"member": p, "text": last})
+    if len(positions) < 2:
+        raise HTTPException(status_code=400, detail="At least two members must speak before a peer review.")
+
+    order = list(range(len(positions)))
+    random.shuffle(order)
+    letters = [chr(65 + i) for i in range(len(positions))]
+    letter_to_pos = {}
+    anon_lines = []
+    for i, li in enumerate(order):
+        letter_to_pos[letters[i]] = positions[li]
+        anon_lines.append(f"{letters[i]}: {positions[li]['text']}")
+    anon_block = "\n\n".join(anon_lines)
+    letter_list = ", ".join(letter_to_pos.keys())
+    n = len(letter_to_pos)
+    borda = {l: 0 for l in letter_to_pos}
+    votes = {l: 0 for l in letter_to_pos}
+
+    async def review_one(reviewer):
+        system = (
+            f"You are {reviewer['name']}, acting as an impartial council reviewer. The following positions are "
+            "anonymised — you do not know who authored any of them, so judge them blind, purely on rigour, insight, "
+            "evidence and truthfulness. Do not show favouritism."
+        )
+        user = (
+            f"Positions:\n\n{anon_block}\n\n"
+            f"Return ONLY compact JSON, no prose: {{\"rankings\": [best-to-worst list of the letters {letter_list}], "
+            f"\"most_convincing\": \"<one letter>\"}}."
+        )
+        try:
+            raw = await call_openrouter(reviewer["model"], [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ], max_tokens=200)
+            return _parse_json(raw)
+        except Exception as e:
+            logger.warning(f"Review failed for {reviewer['name']}: {e}")
+            return None
+
+    results = await asyncio.gather(*[review_one(r) for r in participants])
+    for data in results:
+        if not data:
+            continue
+        ranks = [r for r in data.get("rankings", []) if r in borda]
+        for idx, l in enumerate(ranks):
+            borda[l] += (n - 1 - idx)
+        mc = data.get("most_convincing")
+        if mc in votes:
+            votes[mc] += 1
+
+    max_b = max(borda.values()) or 1
+    standings = []
+    for l, pos in letter_to_pos.items():
+        m = pos["member"]
+        standings.append({
+            "member_id": m["id"], "name": m["name"], "color": m["color"],
+            "stance": pos["text"], "raw_score": borda[l],
+            "score": round(100 * borda[l] / max_b), "votes": votes[l],
+        })
+    standings.sort(key=lambda x: (-x["raw_score"], -x["votes"]))
+    mvp = max(standings, key=lambda x: x["votes"]) if standings else None
+    return {
+        "generated_at": now_iso(),
+        "standings": standings,
+        "mvp_id": mvp["member_id"] if mvp and mvp["votes"] > 0 else None,
+        "mvp_name": mvp["name"] if mvp and mvp["votes"] > 0 else None,
+    }
+
+
+@api_router.post("/sessions/{sid}/review")
+async def peer_review(sid: str):
+    doc = await db.sessions.find_one({"id": sid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Session not found")
+    participants = [await resolved_member(p) for p in doc["participant_ids"]]
+    review = await _compute_review(participants, doc["turns"])
+    await db.sessions.update_one({"id": sid}, {"$set": {"review": review}})
+    return review
+
+
+class SynthesizeRequest(BaseModel):
+    chairman_id: str
+    question: Optional[str] = None
+
+
+@api_router.post("/sessions/{sid}/synthesize")
+async def synthesize(sid: str, body: SynthesizeRequest):
+    doc = await db.sessions.find_one({"id": sid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if body.chairman_id not in MEMBERS_BY_ID:
+        raise HTTPException(status_code=400, detail="Unknown chairman")
+    participants = [await resolved_member(p) for p in doc["participant_ids"]]
+
+    new_turns = []
+    if body.question and body.question.strip():
+        q_turn = {"id": str(uuid.uuid4()), "speaker_id": "human", "speaker_name": "You",
+                  "color": "#ffffff", "text": body.question.strip(), "ts": now_iso()}
+        new_turns.append(q_turn)
+
+    question = (body.question or "").strip() or doc["title"]
+
+    async def answer_one(member):
+        system = (
+            f"You are {member['name']} from {member['org']}. Answer the question below independently with your own "
+            "best thinking — you are NOT seeing other models' answers. Be substantive, accurate and well-reasoned. "
+            "Write in clear prose (no markdown headings, bullet lists, or code fences)."
+        )
+        if member.get("persona"):
+            system += f" Persona: {member['persona']}"
+        try:
+            txt = await call_openrouter(member["model"], [
+                {"role": "system", "content": system},
+                {"role": "user", "content": f"Question: {question}"},
+            ], max_tokens=600)
+        except HTTPException:
+            raise
+        except Exception as e:
+            txt = f"(no answer — {str(e)[:120]})"
+        return {"id": str(uuid.uuid4()), "speaker_id": member["id"], "speaker_name": member["name"],
+                "color": member["color"], "text": txt, "ts": now_iso()}
+
+    answers = await asyncio.gather(*[answer_one(m) for m in participants])
+    answer_turns = list(answers)
+    all_new = new_turns + answer_turns
+
+    # Blind peer review over the fresh answers
+    try:
+        review = await _compute_review(participants, answer_turns)
+    except HTTPException:
+        review = None
+
+    # Chairman synthesis
+    chair = await resolved_member(body.chairman_id)
+    labeled = "\n\n".join([f"{a['speaker_name']}: {a['text']}" for a in answer_turns])
+    rank_summary = ""
+    if review:
+        rank_summary = "\n\nBlind peer-review ranking (best first): " + ", ".join(
+            [f"{s['name']} ({s['score']}/100, {s['votes']} votes)" for s in review["standings"]])
+    chair_system = (
+        f"You are {chair['name']}, the Council Chairman. Synthesise the members' independent answers into ONE "
+        "authoritative, well-structured answer to the question. Integrate the strongest points, resolve conflicts, "
+        "and explicitly note any important dissent. Attribute key insights to members by name where useful. "
+        "Be clear and decisive."
+    )
+    chair_user = f"Question: {question}\n\nIndependent answers:\n\n{labeled}{rank_summary}\n\nWrite the synthesised council answer now."
+    synth_text = await call_openrouter(chair["model"], [
+        {"role": "system", "content": chair_system},
+        {"role": "user", "content": chair_user},
+    ], max_tokens=1100)
+
+    synthesis = {"question": question, "text": synth_text, "chairman_id": chair["id"],
+                 "chairman_name": chair["name"], "chairman_color": chair["color"], "ts": now_iso()}
+
+    update = {"$push": {"turns": {"$each": all_new}}, "$set": {"synthesis": synthesis}}
+    if review:
+        update["$set"]["review"] = review
+    await db.sessions.update_one({"id": sid}, update)
+    return {"answers": all_new, "review": review, "synthesis": synthesis}
+
+
+class TTSRequest(BaseModel):
+    text: str
+    member_id: Optional[str] = None
+    voice: Optional[str] = None
+
+
+@api_router.post("/tts")
+async def synth_voice(body: TTSRequest):
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=400, detail="Voice key not configured")
+    voice = body.voice
+    if not voice and body.member_id in MEMBERS_BY_ID:
+        voice = MEMBERS_BY_ID[body.member_id]["voice"]
+    voice = voice or "alloy"
+    try:
+        tts = OpenAITextToSpeech(api_key=EMERGENT_LLM_KEY)
+        audio = await tts.generate_speech_base64(text=body.text[:4000], model="tts-1", voice=voice)
+        return {"audio_base64": audio}
+    except Exception as e:
+        logger.warning(f"TTS failed: {e}")
+        raise HTTPException(status_code=500, detail="Voice generation failed")
+
+
+@api_router.get("/sessions/{sid}/export")
+async def export_pdf(sid: str):
+    doc = await db.sessions.find_one({"id": sid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, HRFlowable)
+    from xml.sax.saxutils import escape
+
+    buf = BytesIO()
+    pdf = SimpleDocTemplate(buf, pagesize=A4, topMargin=22 * mm, bottomMargin=18 * mm,
+                            leftMargin=20 * mm, rightMargin=20 * mm, title=doc["title"])
+    ss = getSampleStyleSheet()
+    h1 = ParagraphStyle("h1", parent=ss["Title"], fontSize=22, textColor=colors.HexColor("#111111"), spaceAfter=4)
+    meta = ParagraphStyle("meta", parent=ss["Normal"], fontSize=9, textColor=colors.HexColor("#888888"))
+    sec = ParagraphStyle("sec", parent=ss["Heading2"], fontSize=13, textColor=colors.HexColor("#111111"),
+                         spaceBefore=16, spaceAfter=6)
+    body = ParagraphStyle("body", parent=ss["Normal"], fontSize=10.5, leading=15, textColor=colors.HexColor("#222222"))
+    small = ParagraphStyle("small", parent=ss["Normal"], fontSize=9, leading=13, textColor=colors.HexColor("#555555"))
+
+    participants = [await resolved_member(p) for p in doc["participant_ids"]]
+    story = [Paragraph(escape(doc["title"]), h1)]
+    names = ", ".join([f"{m['name']} ({m['org']})" for m in participants])
+    story.append(Paragraph(f"THE COUNCIL &nbsp;·&nbsp; {escape(names)}", meta))
+    story.append(Paragraph(f"Status: {doc.get('status', 'active')} &nbsp;·&nbsp; {len(doc.get('turns', []))} turns", meta))
+    story.append(Spacer(1, 6))
+    story.append(HRFlowable(width="100%", color=colors.HexColor("#dddddd")))
+
+    if doc.get("conclusion"):
+        story.append(Paragraph("Final Verdict", sec))
+        story.append(Paragraph(f"<i>Drafted by {escape(doc['conclusion']['drafter_name'])}</i>", small))
+        for para in doc["conclusion"]["text"].split("\n"):
+            if para.strip():
+                story.append(Paragraph(escape(para.strip()), body))
+                story.append(Spacer(1, 4))
+
+    rv = doc.get("review")
+    if rv and rv.get("standings"):
+        story.append(Paragraph("Council Standings (blind peer review)", sec))
+        for i, s in enumerate(rv["standings"]):
+            tag = "  ★ Most convincing" if s["member_id"] == rv.get("mvp_id") else ""
+            story.append(Paragraph(
+                f"<b>{i + 1}. {escape(s['name'])}</b> — score {s['score']}/100 · {s['votes']} vote(s){tag}", small))
+        story.append(Spacer(1, 4))
+
+    if doc.get("notes"):
+        story.append(Paragraph("Scribe's Notes", sec))
+        for nte in doc["notes"]:
+            story.append(Paragraph(f"• {escape(nte['text'])}", body))
+
+    story.append(Paragraph("Full Transcript", sec))
+    for t in doc.get("turns", []):
+        c = t.get("color", "#000000")
+        story.append(Paragraph(f'<font color="{c}"><b>{escape(t["speaker_name"])}</b></font>', small))
+        story.append(Paragraph(escape(t["text"]), body))
+        story.append(Spacer(1, 6))
+
+    pdf.build(story)
+    buf.seek(0)
+    fname = "".join(ch for ch in doc["title"] if ch.isalnum() or ch in " -_")[:40].strip() or "council"
+    return StreamingResponse(buf, media_type="application/pdf",
+                             headers={"Content-Disposition": f'attachment; filename="{fname}.pdf"'})
 
 
 app.include_router(api_router)
