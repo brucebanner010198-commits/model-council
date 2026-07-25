@@ -87,7 +87,9 @@ export default function Room() {
     try {
       const res = await refreshNotes(id);
       setSession((s) => ({ ...s, notes: res.notes }));
-    } catch (_) {}
+    } catch (e) {
+      console.debug("Scribe notes refresh failed (non-fatal):", e);
+    }
   };
 
   const sendHuman = async () => {
@@ -107,7 +109,9 @@ export default function Room() {
         await makeRespond(p.id, directive);
       }
       await doNotes();
-    } catch (_) {} finally { setBusy(false); }
+    } catch (e) {
+      console.debug("Round-table interrupted:", e);
+    } finally { setBusy(false); }
   };
 
   const openFloor = async () => {
@@ -122,7 +126,9 @@ export default function Room() {
       if (input.trim()) await sendHuman();
       await makeRespond(member.id, `The chair turns to you, ${member.name}. Respond to the discussion.`);
       await doNotes();
-    } catch (_) {} finally { setBusy(false); }
+    } catch (e) {
+      console.debug("Tile respond failed:", e);
+    } finally { setBusy(false); }
   };
 
   const startRec = async () => {
@@ -138,13 +144,17 @@ export default function Room() {
         try {
           const res = await transcribe(blob);
           setInput((prev) => (prev ? prev + " " : "") + (res.text || ""));
-        } catch (_) { toast.error("Could not transcribe audio"); }
+        } catch (e) {
+          console.warn("STT transcription failed:", e);
+          toast.error("Could not transcribe audio");
+        }
         finally { setTranscribing(false); }
       };
       mr.start();
       mediaRef.current = mr;
       setRecording(true);
-    } catch (_) {
+    } catch (e) {
+      console.warn("Microphone unavailable:", e);
       toast.error("Microphone access denied");
     }
   };
@@ -184,7 +194,9 @@ export default function Room() {
         }
       }
       await doNotes();
-    } catch (_) {} finally { setDebating(false); setBusy(false); }
+    } catch (e) {
+      console.debug("Auto-debate interrupted:", e);
+    } finally { setDebating(false); setBusy(false); }
   };
 
   const stopDebate = () => { stopRef.current = true; };
@@ -234,7 +246,9 @@ export default function Room() {
         a.onerror = () => { setActive(null); resolve(); };
         a.play().catch(() => { setActive(null); resolve(); });
       });
-    } catch (_) {} finally { setPlayingId(null); }
+    } catch (e) {
+      console.debug("TTS playback failed (non-fatal):", e);
+    } finally { setPlayingId(null); }
   };
 
   const doExport = () => {

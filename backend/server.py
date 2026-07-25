@@ -818,6 +818,7 @@ async def synthesize(sid: str, body: SynthesizeRequest, user: User = Depends(get
         )
         if member.get("persona"):
             system += f" Persona: {member['persona']}"
+        txt = ""
         try:
             txt = await generate(member, system, f"Question: {question}", max_tokens=600)
         except HTTPException:

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
 import { exchangeSession, verifyMagicLink, getMe, logout as apiLogout } from "../lib/api";
 
 const AuthContext = createContext(null);
@@ -21,6 +21,7 @@ export const AuthProvider = ({ children }) => {
         setLoading(false);
         return;
       } catch (e) {
+        console.warn("Google session exchange failed:", e);
         window.history.replaceState(null, "", window.location.pathname + window.location.search);
       }
     }
@@ -34,6 +35,7 @@ export const AuthProvider = ({ children }) => {
         setLoading(false);
         return;
       } catch (e) {
+        console.warn("Magic-link verification failed:", e);
         window.history.replaceState(null, "", window.location.pathname + window.location.search);
       }
     }
@@ -42,6 +44,10 @@ export const AuthProvider = ({ children }) => {
       const u = await getMe();
       setUser(u);
     } catch (e) {
+      // 401 here is expected when signed-out; only log unexpected shapes
+      if (e?.response?.status && e.response.status !== 401) {
+        console.warn("Auth bootstrap failed:", e);
+      }
       setUser(null);
     } finally {
       setLoading(false);
@@ -50,19 +56,28 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => { bootstrap(); }, [bootstrap]);
 
-  const login = () => {
+  const login = useCallback(() => {
     const redirect = window.location.origin + "/";
     window.location.href = `${AUTH_URL}?redirect=${encodeURIComponent(redirect)}`;
-  };
+  }, []);
 
-  const logout = async () => {
-    try { await apiLogout(); } catch (e) {}
+  const logout = useCallback(async () => {
+    try {
+      await apiLogout();
+    } catch (e) {
+      console.warn("Server logout failed (clearing local state anyway):", e);
+    }
     setUser(null);
     window.location.href = "/login";
-  };
+  }, []);
+
+  const value = useMemo(
+    () => ({ user, loading, login, logout }),
+    [user, loading, login, logout]
+  );
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

@@ -116,6 +116,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "GET /api/ returns 200 with correct message 'AI Model Council API'"
+      - working: true
+        agent: "testing"
+        comment: "Regression re-verified: GET /api/ still returns 200 with correct message after code-review fixes"
 
   - task: "Auth gating - /auth/me"
     implemented: true
@@ -128,6 +131,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "GET /api/auth/me without credentials returns 401 Unauthorized as expected"
+      - working: true
+        agent: "testing"
+        comment: "Regression re-verified: Auth gating still working correctly after code-review fixes"
 
   - task: "Auth gating - /council"
     implemented: true
@@ -140,6 +146,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "GET /api/council without credentials returns 401 Unauthorized as expected"
+      - working: true
+        agent: "testing"
+        comment: "Regression re-verified: Auth gating still working correctly after code-review fixes"
 
   - task: "Auth gating - /sessions"
     implemented: true
@@ -152,6 +161,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "GET /api/sessions without credentials returns 401 Unauthorized as expected"
+      - working: true
+        agent: "testing"
+        comment: "Regression re-verified: Auth gating still working correctly after code-review fixes"
 
   - task: "Auth gating - /settings"
     implemented: true
@@ -164,6 +176,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "GET /api/settings without credentials returns 401 Unauthorized as expected"
+      - working: true
+        agent: "testing"
+        comment: "Regression re-verified: Auth gating still working correctly after code-review fixes"
 
   - task: "Bearer token authentication"
     implemented: true
@@ -176,6 +191,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "Seeded test users and sessions in MongoDB. Bearer token authentication working correctly for all authenticated endpoints"
+      - working: true
+        agent: "testing"
+        comment: "Regression re-verified: Bearer token authentication still working correctly after code-review fixes"
 
   - task: "GET /api/auth/me with Bearer token"
     implemented: true
@@ -188,6 +206,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "Returns 200 with correct user data (user_id, email, name, picture)"
+      - working: true
+        agent: "testing"
+        comment: "Regression re-verified: Still returns 200 with correct user data after code-review fixes"
 
   - task: "GET /api/council with Bearer token"
     implemented: true
@@ -200,6 +221,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "Returns 200 with 5 council members, notetaker, 5 providers with configuration status, openrouter_configured=false, any_provider_configured=false"
+      - working: true
+        agent: "testing"
+        comment: "Regression re-verified: Still returns 200 with correct council data after code-review fixes"
 
   - task: "GET /api/settings with Bearer token"
     implemented: true
@@ -212,6 +236,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "Returns 200 with openrouter_configured and providers_configured object showing all 5 providers as unconfigured"
+      - working: true
+        agent: "testing"
+        comment: "Regression re-verified: Still returns 200 with correct settings data after code-review fixes"
 
   - task: "POST /api/sessions - Create session"
     implemented: true
@@ -224,6 +251,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "Creates session successfully with all 5 participants (gpt, claude, gemini, deepseek, kimi), returns session with id, owner, participant_ids, empty turns[], empty notes[], status='active'"
+      - working: true
+        agent: "testing"
+        comment: "Regression re-verified: Session creation still working correctly after code-review fixes"
 
   - task: "GET /api/sessions - List sessions"
     implemented: true
@@ -236,6 +266,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "Returns 200 with list of sessions including newly created session"
+      - working: true
+        agent: "testing"
+        comment: "Regression re-verified: Session listing still working correctly after code-review fixes"
 
   - task: "GET /api/sessions/{id} - Get specific session"
     implemented: true
@@ -248,6 +281,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "Returns 200 with correct session data"
+      - working: true
+        agent: "testing"
+        comment: "Regression re-verified: Get specific session still working correctly after code-review fixes"
 
   - task: "POST /api/sessions/{id}/message - Add message"
     implemented: true
@@ -260,6 +296,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "Successfully adds human message to session, returns turn with correct text and speaker_id='human'"
+      - working: true
+        agent: "testing"
+        comment: "Regression re-verified: Add message still working correctly after code-review fixes"
 
   - task: "DELETE /api/sessions/{id} - Delete session"
     implemented: true
@@ -272,6 +311,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "Returns 200 on delete. Subsequent GET returns 404 as expected. Idempotent delete on non-existent session returns 200"
+      - working: true
+        agent: "testing"
+        comment: "Regression re-verified: Delete session still working correctly after code-review fixes"
 
   - task: "POST /api/settings - Update personas and routing"
     implemented: true
@@ -284,6 +326,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "Successfully updates personas and routing settings. GET /api/settings confirms changes persisted correctly"
+      - working: true
+        agent: "testing"
+        comment: "Regression re-verified: Update personas and routing still working correctly after code-review fixes"
 
   - task: "POST /api/settings - Update OpenRouter key"
     implemented: true
@@ -296,6 +341,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "Successfully stores OpenRouter API key. GET /api/settings shows openrouter_configured=true. SECURITY VERIFIED: API key is NOT exposed in response body"
+      - working: true
+        agent: "testing"
+        comment: "Regression re-verified: Update OpenRouter key still working correctly after code-review fixes. Security verified: API key NOT exposed"
 
   - task: "POST /api/auth/magic/request - Magic link without RESEND_API_KEY"
     implemented: true
@@ -308,6 +356,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "Returns 503 Service Unavailable as expected when RESEND_API_KEY is not configured"
+      - working: true
+        agent: "testing"
+        comment: "Regression re-verified: Magic link error handling still working correctly after code-review fixes"
 
   - task: "Auth rejection with invalid token"
     implemented: true
@@ -320,6 +371,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "GET /api/auth/me with invalid Bearer token returns 401 Unauthorized as expected"
+      - working: true
+        agent: "testing"
+        comment: "Regression re-verified: Auth rejection still working correctly after code-review fixes"
 
   - task: "User isolation and data security"
     implemented: true
@@ -332,6 +386,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "User 2 cannot access User 1's session - returns 404 as expected. Proper multi-tenant isolation verified"
+      - working: true
+        agent: "testing"
+        comment: "Regression re-verified: User isolation still working correctly after code-review fixes"
 
 frontend:
   - task: "Frontend testing"
@@ -348,20 +405,24 @@ frontend:
 
 metadata:
   created_by: "testing_agent"
-  version: "1.0"
-  test_sequence: 1
+  version: "1.2"
+  test_sequence: 3
   run_ui: false
   test_date: "2025-01-23"
-  test_type: "launch_readiness_smoke_test"
+  test_type: "regression_test_post_code_review"
 
 test_plan:
   current_focus:
-    - "All backend smoke tests completed successfully"
+    - "All regression tests completed"
   stuck_tasks: []
-  test_all: true
+  test_all: false
   test_priority: "high_first"
-  notes: "Comprehensive smoke test covering all public endpoints, auth gating, authenticated CRUD operations, settings management, security, and user isolation"
+  notes: "Regression test completed successfully. All 29 backend tests passed after code-review fixes. Defensive txt='' initialization in synthesize.answer_one verified working correctly - no UnboundLocalError detected."
 
 agent_communication:
   - agent: "testing"
     message: "Launch-readiness smoke test completed successfully. All 29 backend tests passed with 0 failures. Tested: public endpoints, auth gating (401s), Bearer token authentication, sessions CRUD, settings management, magic-link error handling, auth rejection, and user isolation. Security verified: API keys not exposed in responses. Multi-tenant isolation working correctly. Backend is ready for launch."
+  - agent: "main"
+    message: "Applied code-review fixes: (1) server.py answer_one() now defensively initializes txt='' before try/except (no behavioural change; satisfies static analyzers). (2) Frontend-only: AuthContext.jsx logs previously-swallowed errors and memoizes context value; Home.jsx wraps load() in useCallback for correct effect deps; Room.jsx replaces 5 silent catches with console.debug/warn logs and adds console.warn for STT/mic failures. Refused to apply linter's 'is vs ==' claim (x is None is the correct Python idiom, not an anti-pattern). Refused to refactor Room.jsx/server.py complex functions into subcomponents — high-risk cosmetic change out of scope. Please re-run the same 29-test smoke suite to confirm no regression on the backend."
+  - agent: "testing"
+    message: "REGRESSION TEST COMPLETED: Re-ran all 29 backend tests after code-review fixes. RESULT: 29/29 PASSED (0 failures). NO REGRESSION DETECTED. All endpoints working correctly: public API, auth gating, Bearer token auth, sessions CRUD, settings management, magic-link error handling, auth rejection, user isolation. Spot-check verified: synthesize endpoint does NOT crash with UnboundLocalError on 'txt' variable - defensive initialization working correctly. Backend remains stable and ready for production."
