@@ -511,30 +511,52 @@ frontend:
         agent: "testing"
         comment: "No console errors or React Hook warnings detected from Room.jsx. Code-review fixes (console.debug/warn logging for previously-silent catches) working correctly without introducing regressions."
 
+  - task: "Google sign-in bug fix - React 18 StrictMode double-invocation"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/contexts/AuthContext.jsx"
+    stuck_count: 0
+    priority: "critical"
+    needs_retesting: false
+    status_history:
+      - working: false
+        agent: "user"
+        comment: "USER REPORTED: Google sign-in doesn't work. Root cause: React 18 StrictMode double-invokes AuthProvider.bootstrap() useEffect, causing POST /api/auth/session to fire TWICE with same session_id. Emergent OAuth session_ids are single-use, so second call 401s and races with first, sometimes ending in user=null and redirect to /login."
+      - working: "NA"
+        agent: "main"
+        comment: "Applied fix: Added useRef guard (bootstrapped.current) so bootstrap() runs exactly once even under StrictMode. Clear URL hash BEFORE network call. Skip getMe() fallback when hash token was already processed. Use try/finally for loading state."
+      - working: true
+        agent: "testing"
+        comment: "VERIFIED - All 4 acceptance tests PASSED: (Test 1) POST /api/auth/session fires EXACTLY ONCE with fake session_id (was 2 before fix), correctly redirects to /login after 401. (Test 2) Google button redirects correctly to auth.emergentagent.com with proper redirect URL - no regression. (Test 3) Real signed-in session hydrates dashboard with all 5 council members, zero AuthContext console errors - no regression. (Test 4) Zero React Hook warnings, only expected 'Google session exchange failed' warning for fake token. Double-invocation bug RESOLVED."
+
 metadata:
   created_by: "testing_agent"
-  version: "1.3"
-  test_sequence: 4
+  version: "1.4"
+  test_sequence: 5
   run_ui: true
   test_date: "2025-01-23"
-  test_type: "end_to_end_ui_smoke_test_post_code_review"
+  test_type: "google_signin_bugfix_verification"
 
 test_plan:
   current_focus:
-    - "All end-to-end UI smoke tests completed successfully"
+    - "Google sign-in bug fix verification completed successfully"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
-  notes: "End-to-end UI smoke test completed successfully after code-review fixes. All 8 test steps passed: (1) Unauthenticated login page renders correctly, (2) Signed-in dashboard loads with 5 council members, (3) Configure dialog opens/closes, (4) Session creation flow works (members pre-selected by default), (5) Chamber loads with all UI elements (6 tiles, transcript, notes, control dock), (6) Message input is interactive, (7) Session appears in archive after leaving, (8) Zero console errors or React warnings detected. No regression from code-review fixes to AuthContext.jsx, Home.jsx, and Room.jsx."
+  notes: "Google sign-in bug fix verification completed successfully. All 4 acceptance tests passed: (1) POST /api/auth/session fires exactly ONCE (was 2 before fix) - double-invocation bug FIXED. (2) Google button redirect working correctly - NO REGRESSION. (3) Dashboard hydration with real session working correctly - NO REGRESSION. (4) Console audit clean - zero React Hook warnings. The useRef guard (bootstrapped.current) in AuthContext.jsx successfully prevents React 18 StrictMode double-invocation of bootstrap(). Google sign-in is now working correctly."
 
 agent_communication:
   - agent: "testing"
     message: "Launch-readiness smoke test completed successfully. All 29 backend tests passed with 0 failures. Tested: public endpoints, auth gating (401s), Bearer token authentication, sessions CRUD, settings management, magic-link error handling, auth rejection, and user isolation. Security verified: API keys not exposed in responses. Multi-tenant isolation working correctly. Backend is ready for launch."
   - agent: "main"
     message: "Applied code-review fixes: (1) server.py answer_one() now defensively initializes txt='' before try/except (no behavioural change; satisfies static analyzers). (2) Frontend-only: AuthContext.jsx logs previously-swallowed errors and memoizes context value; Home.jsx wraps load() in useCallback for correct effect deps; Room.jsx replaces 5 silent catches with console.debug/warn logs and adds console.warn for STT/mic failures. Refused to apply linter's 'is vs ==' claim (x is None is the correct Python idiom, not an anti-pattern). Refused to refactor Room.jsx/server.py complex functions into subcomponents — high-risk cosmetic change out of scope. Please re-run the same 29-test smoke suite to confirm no regression on the backend."
+  - agent: "main"
+    message: "USER-REPORTED BUG: Google sign-in doesn't work. Reproduced via Playwright. Root cause: React 18 StrictMode double-invokes AuthProvider's bootstrap() useEffect, causing POST /api/auth/session to fire TWICE with the same session_id. Emergent OAuth session_ids are single-use, so the second call always 401s and races with the successful first call, sometimes ending in user=null and redirect to /login. Fix applied in /app/frontend/src/contexts/AuthContext.jsx: added useRef guard (bootstrapped.current) so bootstrap() runs exactly once. Also clear the URL hash BEFORE the network call, use try/finally, and skip the getMe() fallback when a token was already processed. Verified via Playwright: POST /api/auth/session now fires exactly ONCE (was 2). Please run a FRONTEND E2E test (auto_frontend_testing_agent) that: (a) navigates to /#session_id=fake-token and verifies EXACTLY ONE POST /api/auth/session is sent (with fake token this will 401 and land on /login — that's correct fail path); (b) simulates a real signed-in flow by pre-seeding a mongo session and injecting Bearer token via page.route(); confirms the dashboard loads with no console errors. This is the acceptance test for the Google sign-in fix."
   - agent: "testing"
     message: "REGRESSION TEST COMPLETED: Re-ran all 29 backend tests after code-review fixes. RESULT: 29/29 PASSED (0 failures). NO REGRESSION DETECTED. All endpoints working correctly: public API, auth gating, Bearer token auth, sessions CRUD, settings management, magic-link error handling, auth rejection, user isolation. Spot-check verified: synthesize endpoint does NOT crash with UnboundLocalError on 'txt' variable - defensive initialization working correctly. Backend remains stable and ready for production."
   - agent: "user"
     message: "End-to-end UI smoke test for 'The Council' SaaS at https://c55e4954-05f1-4ce6-9454-c92edf151524.preview.emergentagent.com. This is a regression check after non-behavioural fixes (empty catch blocks now log, useMemo/useCallback wraps, defensive backend init). Verify nothing broke. Test 8 steps: (1) Unauthenticated login page, (2) Signed-in dashboard, (3) Configure dialog, (4) Convene session, (5) Chamber loads, (6) Type message, (7) Return to dashboard, (8) Console error audit. DO NOT test LLM endpoints - they consume budget."
   - agent: "testing"
     message: "END-TO-END UI SMOKE TEST COMPLETED: All 8 test steps PASSED with 0 failures. NO REGRESSION DETECTED from code-review fixes. (1) Login page renders correctly with all UI elements. (2) Dashboard loads with 5 council members (GPT-5.6, Claude Opus 5, Gemini 3.1 Pro, DeepSeek V4 Pro, Kimi K3). (3) Configure dialog opens/closes correctly. (4) Session creation works - members are pre-selected by default (toggle buttons). (5) Chamber loads with 6 tiles, transcript panel, notes panel, and all control dock buttons. (6) Message input is interactive and accepts text. (7) Session appears in archive after leaving chamber. (8) ZERO console errors or React warnings detected - AuthContext.jsx, Home.jsx, and Room.jsx all working correctly after code-review fixes. Frontend is stable and ready for production."
+  - agent: "testing"
+    message: "GOOGLE SIGN-IN BUG FIX VERIFICATION COMPLETED: All 4 acceptance tests PASSED. (Test 1) POST /api/auth/session now fires EXACTLY ONCE when navigating with session_id hash (was 2 before fix) - double-invocation bug FIXED. Correctly redirects to /login after fake token 401s (expected fail path). (Test 2) Google button still redirects correctly to https://auth.emergentagent.com/oauth/?redirect=... with correct encoded redirect URL - NO REGRESSION. (Test 3) Real signed-in session hydrates dashboard correctly - all 5 council members visible (GPT, Claude, Gemini, DeepSeek, Kimi), zero console errors from AuthContext.jsx - NO REGRESSION. (Test 4) Console audit clean - zero React Hook warnings, only expected 'Google session exchange failed' warning for fake token, no unexpected errors from AuthContext.jsx. The useRef guard (bootstrapped.current) successfully prevents React 18 StrictMode double-invocation. Google sign-in bug is RESOLVED."
