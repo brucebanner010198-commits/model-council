@@ -1,0 +1,33 @@
+# PRD — The Council (AI Model Council)
+
+## Original Problem Statement
+A "model council" of frontier models where a human is a member. Human and models talk to each other in natural language, have critical discussions, and any conversation runs until a conclusion is drafted by a model the user assigns. Zoom-call style UI (each model on the other end). Real spoken voice. A dedicated note-taker model captures key points separate from the recorded transcript. Conversations saved with each speaker's (model) name.
+
+## User Choices
+- Real voice — models speak out loud with distinct voices.
+- Council of top 5 models by latest LiveBench (US paid + China open), each #1 at some task.
+- Optional personas; default to each model's natural personality.
+- Single-user personal workspace (no login for now).
+- Dedicated always-on note-taker (Scribe) + user-assigned conclusion drafter.
+
+## Architecture
+- **Frontend**: React 19, Tailwind, framer-motion, shadcn/ui, sonner. Pages: Home (dashboard + convene + archive), Room (Zoom-style call). Dark "Mission Control" theme (Cabinet Grotesk / IBM Plex Sans / JetBrains Mono).
+- **Backend**: FastAPI + MongoDB (motor). Council text via **OpenRouter** (user's own key). Voice via **emergentintegrations** OpenAI TTS (`tts-1`) + Whisper STT (`whisper-1`) on the built-in EMERGENT_LLM_KEY.
+- **Council (editable model IDs)**: GPT-5.6 (openai/gpt-5.6), Claude Opus 5 (anthropic/claude-opus-4.6), Gemini 3.1 Pro (google/gemini-3-pro-preview), DeepSeek V4 Pro (deepseek/deepseek-chat, open), Kimi K3 (moonshotai/kimi-k2, open). Scribe note-taker (openai/gpt-4o-mini). Each has a distinct voice + accent color.
+
+## Implemented (2026-06)
+- Home: hero, standing council roster, session archive (open/delete), Settings dialog (paste OpenRouter key, edit per-member model IDs + personas, Scribe model). Convene dialog (topic + member chips) → creates session, navigates to Room.
+- Room: Zoom-style video tiles (active-speaker glow + framer-motion waveform, thinking state), human tile with mic state, live transcript panel (speaker name + color), separate Scribe notes panel, conclusion/verdict block. Control dock: mic push-to-record → Whisper STT into input, address council (round table), open the floor (models initiate), refresh notes, draft conclusion (pick drafter), mute voices, leave.
+- Turn engine: human message + sequential model responses, each spoken via TTS (auto-plays with active-speaker highlight), auto note refresh after each round.
+- Voice pipeline verified end-to-end (TTS→STT round-trip). Settings persistence verified. Graceful 400 when OpenRouter key absent.
+- Backend pytest suite (8/8) + frontend E2E (100%) passing.
+
+## Backlog
+- P1: Streaming token-by-token responses; auto-open Settings when key missing; export session (transcript + notes + verdict) as PDF/markdown.
+- P1: Model-to-model auto-debate mode (models respond to each other autonomously for N rounds).
+- P2: Auth/multi-user (JWT or Google), sharable session links, voice barge-in / live mic VAD, avatar video motion.
+- P2: Read `HTTP-Referer` from env in call_openrouter; per-session persona overrides.
+
+## Next Tasks
+1. User adds their OpenRouter key in Settings to activate live council responses.
+2. Consider top-up of Universal Key balance (chat budget is 0; only TTS/STT active there).

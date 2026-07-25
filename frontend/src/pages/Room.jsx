@@ -6,7 +6,7 @@ import {
 } from "../lib/api";
 import { VideoTile } from "../components/VideoTile";
 import { Button } from "../components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../components/ui/dialog";
 import { toast } from "sonner";
 import {
   Mic, Square, Send, Users2, PhoneOff, NotebookPen, Gavel, Play, Loader2, FileText,
@@ -298,6 +298,7 @@ export default function Room() {
         <DialogContent className="bg-[#0a0a0c] border-white/10 text-white">
           <DialogHeader>
             <DialogTitle className="font-mono">Assign the conclusion drafter</DialogTitle>
+            <DialogDescription className="text-zinc-500">The chosen member will synthesise the discussion into the final verdict.</DialogDescription>
           </DialogHeader>
           <p className="text-sm text-zinc-400">Which member should synthesise the discussion into the final verdict?</p>
           <div className="grid gap-2 mt-2">

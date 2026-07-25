@@ -5,7 +5,7 @@ import { getCouncil, listSessions, createSession, deleteSession } from "../lib/a
 import { SettingsDialog } from "../components/SettingsDialog";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../components/ui/dialog";
 import { toast } from "sonner";
 import { Settings, Plus, Users, Trash2, ArrowUpRight, AlertTriangle, CheckCircle2 } from "lucide-react";
 
@@ -157,6 +157,7 @@ export default function Home() {
         <DialogContent className="bg-[#0a0a0c] border-white/10 text-white">
           <DialogHeader>
             <DialogTitle className="font-mono">Convene the Council</DialogTitle>
+            <DialogDescription className="text-zinc-500">Set a topic and seat the members who will debate it.</DialogDescription>
           </DialogHeader>
           <div className="space-y-5 py-2">
             <div>
