@@ -389,8 +389,8 @@ async def conclude(sid: str, body: ConcludeRequest, _rl: None = Depends(rate_lim
 async def speech_to_text(audio: UploadFile = File(...), _rl: None = Depends(rate_limit)):
     if not EMERGENT_LLM_KEY:
         raise HTTPException(status_code=400, detail="Voice key not configured")
-    if audio.content_type and audio.content_type.split(";")[0] not in ALLOWED_AUDIO:
-        raise HTTPException(status_code=415, detail="Unsupported audio type")
+    if not audio.content_type or audio.content_type.split(";")[0] not in ALLOWED_AUDIO:
+        raise HTTPException(status_code=415, detail="Unsupported or missing audio type")
     data = b""
     while True:
         chunk = await audio.read(1024 * 1024)
