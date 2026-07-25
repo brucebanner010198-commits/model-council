@@ -2,7 +2,7 @@ Architecture
 ============
 
 .. figure:: ../_static/diagrams/architecture.svg
-   :alt: The Council architecture — browser → ingress → FastAPI → MongoDB / providers / voice / Resend.
+   :alt: The Council architecture. Browser → ingress → FastAPI → MongoDB / providers / voice / Resend.
    :align: center
    :width: 100%
 
@@ -31,7 +31,7 @@ Model routing (the core idea)
 ------------------------------
 
 .. figure:: ../_static/diagrams/model-routing.svg
-   :alt: generate() routing — pick native provider or OpenRouter, fall back on error, or return 502.
+   :alt: generate() routing. Pick native provider or OpenRouter, fall back on error, or return 502.
    :align: center
    :width: 100%
 
@@ -85,15 +85,15 @@ every call site.
 .. warning::
 
    Because it relies on a ContextVar, never call those settings helpers from a background
-   task that isn't part of a request whose ``get_current_user`` has run — pass ``user_id``
+   task that isn't part of a request whose ``get_current_user`` has run. Pass ``user_id``
    explicitly there instead.
 
 Voice pipeline
 --------------
 
-* **TTS:** ``OpenAITextToSpeech.generate_speech_base64(text, model="tts-1", voice=...)`` —
+* **TTS:** ``OpenAITextToSpeech.generate_speech_base64(text, model="tts-1", voice=...)``.
   each member has a distinct voice. Returned as base64 and played in the browser.
-* **STT:** ``OpenAISpeechToText.transcribe(file, model="whisper-1")`` — the ``/api/stt``
+* **STT:** ``OpenAISpeechToText.transcribe(file, model="whisper-1")``. The ``/api/stt``
   endpoint accepts a size-capped, type-checked audio upload.
 
 Cost-abuse protection

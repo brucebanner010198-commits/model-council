@@ -43,7 +43,7 @@ Run them
 Writing a new backend test
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-1. Read ``conftest.py`` — most tests take a ``client`` fixture (an
+1. Read ``conftest.py``. Most tests take a ``client`` fixture (an
    ``httpx.AsyncClient`` bound to the live backend URL) and a helper that
    creates a signed-in test user by inserting directly into ``users`` +
    ``user_sessions`` (see ``auth_testing.md``).
@@ -57,7 +57,7 @@ Frontend tests
 --------------
 
 The dependency stack (react-scripts / craco + jest) is preserved so
-``yarn test`` runs, but the current suite is intentionally minimal — flows
+``yarn test`` runs, but the current suite is intentionally minimal. Flows
 that need a real backend, real audio, or a real browser are covered by the
 platform's UI testing agent instead.
 
@@ -82,7 +82,7 @@ headless environments), ``auth_testing.md`` at the repo root documents the
    ``Authorization: Bearer <session_token>`` header.
 
 ``memory/test_credentials.md`` (git-ignored) is where actively-used test
-credentials should be recorded for the testing agent — check that file first
+credentials should be recorded for the testing agent. Check that file first
 before creating new ones.
 
 Testing protocol with the platform agents
@@ -92,7 +92,7 @@ The file ``test_result.md`` at the repo root is the **single source of truth**
 between the main dev agent and the testing sub-agents. Its top block ("START
 - Testing Protocol") is *never* edited; the YAML below it accumulates the
 current backlog of ``backend`` / ``frontend`` tasks, their status, and
-inter-agent messages. When you delegate testing, update that YAML first — see
+inter-agent messages. When you delegate testing, update that YAML first. See
 its own inline instructions.
 
 Local vs. supervised
@@ -102,4 +102,4 @@ Local vs. supervised
   backend`` picks up code changes; hot-reload is on.
 * **Local**: run ``uvicorn server:app --reload --port 8001`` from
   ``backend/`` **only** for a one-off local check. Never leave a rogue
-  ``uvicorn`` running — supervisor is authoritative.
+  ``uvicorn`` running. Supervisor is authoritative.

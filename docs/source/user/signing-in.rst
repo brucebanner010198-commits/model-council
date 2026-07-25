@@ -1,51 +1,56 @@
 Signing In
 ==========
 
-The Council is multi-user: everyone gets their own private sessions, notes and keys.
-There are two ways to sign in, and they **merge by email** into a single account.
+The Council is multi-user. Everyone has their own private sessions, notes and keys. There
+are three ways to sign in, and they map to a single account when they use the same email
+address.
 
 .. figure:: ../_static/screenshots/login.jpg
-   :alt: The Council sign-in page — Sign in with Google, or "Email me a link".
+   :alt: The Council sign-in page.
    :align: center
    :width: 100%
 
-   The sign-in page — pick Google or paste an email for a magic-link.
+   The sign-in page. Pick Google, or create an account with email and password.
 
 Sign in with Google
 --------------------
 
-Click **Sign in with Google** and complete the Google prompt. You'll be returned to the
-app, already signed in.
+Click **Sign in with Google** and complete the Google prompt. You return to the app
+already signed in.
 
-Email magic-link (passwordless)
--------------------------------
+Email and password
+------------------
 
-1. Type your email address and click **Email me a link**.
-2. Open the email titled *"Your sign-in link to The Council"*.
-3. Click the button in the email. You'll be signed in automatically.
+1. Click the **Create account** tab.
+2. Enter your email, a password of at least 8 characters, and optionally your name.
+3. Click **Create account**. You land on the dashboard signed in.
 
-.. note::
+Next time, use the **Sign in** tab with the same email and password.
 
-   Magic links are **single-use** and expire after **15 minutes**. If a link doesn't
-   work, just request a new one.
+Email magic-link (optional)
+---------------------------
+
+If the app owner has configured email delivery, you can also request a one-time sign-in
+link at ``/auth/magic/request``. Links are single-use and expire after 15 minutes. This
+UI is off by default because it depends on an email provider being configured.
 
 One account per email
 ---------------------
 
-If you first sign in with Google using ``jane@example.com`` and later use a magic-link
-with the same ``jane@example.com``, it's the **same account** — all your sessions and
-settings are shared.
+If you first sign in with Google using ``jane@example.com`` and later use email and
+password with the same address, it's the same account. Your sessions and settings are
+shared.
 
 Signing out
 -----------
 
-Use the **logout** icon in the top-right of the dashboard. Your session ends and you're
-returned to the sign-in page.
+Click the **logout** icon in the top-right of the dashboard. Your session ends and you
+return to the sign-in page.
 
 Troubleshooting
 ---------------
 
-* **"Email sign-in is not configured yet."** — the site owner hasn't added an email key
-  yet; use Google sign-in in the meantime.
-* **Didn't get the email?** — check spam; in email test mode, links may only reach the
-  owner's verified address.
+* **"Incorrect email or password."** Retype carefully. Passwords are case-sensitive.
+* **"An account with this email already exists."** Use the **Sign in** tab instead.
+* **Network error on sign-in.** Reload the page. If you got here from a bookmarked link,
+  try the current preview URL.

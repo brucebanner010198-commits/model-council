@@ -30,9 +30,9 @@ Routing & auth
 
 ``App.js`` mounts three routes:
 
-* ``/login`` — the sign-in page (Google button + email input).
-* ``/`` — dashboard (``Home``), wrapped in ``<Protected>``.
-* ``/session/:id`` — the council chamber (``Room``), wrapped in ``<Protected>``.
+* ``/login``. The sign-in page (Google button + email input).
+* ``/``. Dashboard (``Home``), wrapped in ``<Protected>``.
+* ``/session/:id``. The council chamber (``Room``), wrapped in ``<Protected>``.
 
 ``<Protected>`` reads ``user`` and ``loading`` from ``useAuth()``. While
 ``loading`` is true it shows a spinner; if there's no user after loading, it
@@ -58,7 +58,7 @@ The API client
 * An ``Authorization: Bearer <token>`` header is set when the magic-link flow
   returned a token (used as a fallback where 3rd-party cookies are blocked).
 
-Every API call in the app goes through this client — do the same for any new
+Every API call in the app goes through this client. Do the same for any new
 call so 401s route consistently.
 
 The chamber (``Room.jsx``)
@@ -66,12 +66,12 @@ The chamber (``Room.jsx``)
 
 The heart of the app. Loads ``/api/sessions/{id}`` once, then drives the UI:
 
-* **Tiles** (``VideoTile``) — one per participant, plus a "You" tile. The
+* **Tiles** (``VideoTile``). One per participant, plus a "You" tile. The
   currently speaking tile gets a coloured glow and shows a ``Waveform`` fed
   by ``AudioContext`` + ``AnalyserNode`` while its audio blob plays.
-* **Transcript panel** — turns rendered in order with per-speaker colour;
+* **Transcript panel**. Turns rendered in order with per-speaker colour;
   hover a line to replay it via ``/api/tts``.
-* **Scribe's notes panel** — refreshed by ``POST /api/sessions/{id}/notes``.
+* **Scribe's notes panel**. Refreshed by ``POST /api/sessions/{id}/notes``.
 * **Control dock**:
 
   - **Mic** → uses ``MediaRecorder`` (webm/opus), streams to ``/api/stt``,
@@ -110,7 +110,7 @@ Design system
 * **Tailwind** 3.4 with the standard CRACO preset. Design tokens live in
   ``tailwind.config.js``.
 * **shadcn/ui** primitives (Radix UI under the hood) live in
-  ``src/components/ui/`` — treat them as internal, copy-in components you
+  ``src/components/ui/``. Treat them as internal, copy-in components you
   can modify.
 * **framer-motion** for tile / transcript transitions.
 * **sonner** for toast notifications.
@@ -122,6 +122,6 @@ Adding a new page
 1. Create ``src/pages/NewPage.jsx``.
 2. Import + add a ``<Route>`` in ``App.js``, wrapping with ``<Protected>``
    unless it's publicly accessible.
-3. Use ``api`` from ``lib/api.js`` for all HTTP calls — don't ``fetch``.
+3. Use ``api`` from ``lib/api.js`` for all HTTP calls. Don't ``fetch``.
 4. Compose UI from ``components/ui/*`` and match the dark ``bg-[#050505]``
    palette used everywhere else.

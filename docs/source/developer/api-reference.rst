@@ -39,7 +39,7 @@ Authentication
 
    Exchange an Emergent OAuth ``session_id`` for a session cookie.
 
-   **Body**: ``{"session_id": "<opaque>"}`` — this is issued by the Emergent
+   **Body**: ``{"session_id": "<opaque>"}``. This is issued by the Emergent
    OAuth redirect (Google login).
 
    **Response 200**: user profile ``{user_id, email, name, picture}``. Sets a
@@ -85,7 +85,7 @@ Council & settings
 
 .. http:get:: /api/settings
 
-   Return the current user's non-secret settings — booleans for configured
+   Return the current user's non-secret settings. Booleans for configured
    keys, plus ``models``, ``native_models``, ``routing``, ``personas``,
    ``notetaker_model``. **Actual key values are never returned.**
 
@@ -139,7 +139,7 @@ Sessions
 
    **Body**: ``{"model_id": "gpt", "directive": "optional steering prompt"}``.
 
-   **Response**: ``{"turn": {...}, "audio_base64": "..."}`` — a new turn is
+   **Response**: ``{"turn": {...}, "audio_base64": "..."}``. A new turn is
    appended and TTS audio is returned inline. Rate-limited.
 
 .. http:post:: /api/sessions/{sid}/notes
@@ -184,7 +184,7 @@ Voice
 
    Synthesise a spoken clip via OpenAI TTS.
 
-   **Body**: ``{"text": "...", "member_id": "gpt", "voice": "onyx"}`` — voice
+   **Body**: ``{"text": "...", "member_id": "gpt", "voice": "onyx"}``. Voice
    is inferred from ``member_id`` if not supplied. Returns
    ``{"audio_base64": "..."}``. Rate-limited.
 
@@ -192,7 +192,7 @@ Voice
 
    Transcribe an uploaded audio file via Whisper.
 
-   **Form field**: ``audio`` — multipart file. Max **25 MB**, MIME type must
+   **Form field**: ``audio``. Multipart file. Max **25 MB**, MIME type must
    be in the ``ALLOWED_AUDIO`` whitelist (webm/ogg/mpeg/wav/mp4/m4a/…).
 
    Returns ``{"text": "..."}``. Rate-limited.

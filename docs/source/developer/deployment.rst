@@ -1,7 +1,7 @@
 Deployment
 ==========
 
-The Council is built as a **cross-platform web app** — a React SPA on
+The Council is built as a **cross-platform web app**. A React SPA on
 ``:3000`` and a FastAPI backend on ``:8001``, both hosted behind a
 Kubernetes ingress that routes ``/api/*`` to the backend and everything
 else to the frontend.
@@ -21,7 +21,7 @@ Inside the environment everything runs under **supervisor**:
 
 .. important::
 
-   Never launch ``uvicorn`` or ``yarn`` yourself — they'd conflict with the
+   Never launch ``uvicorn`` or ``yarn`` yourself. They'd conflict with the
    supervisor-managed processes. Use supervisor commands only.
 
 Common commands
@@ -41,12 +41,12 @@ Environment variables
 ---------------------
 
 Two ``.env`` files drive everything (see :doc:`configuration`). Anything
-holding a secret must live here — **never** hardcode URLs, ports or keys.
+holding a secret must live here. **never** hardcode URLs, ports or keys.
 
-* ``backend/.env`` — ``MONGO_URL``, ``DB_NAME``, ``EMERGENT_LLM_KEY``,
+* ``backend/.env``. ``MONGO_URL``, ``DB_NAME``, ``EMERGENT_LLM_KEY``,
   provider fallbacks, ``RESEND_API_KEY``, ``SENDER_EMAIL``, ``RATE_LIMIT``,
   ``APP_BASE_URL``, ``CORS_ORIGINS``.
-* ``frontend/.env`` — ``REACT_APP_BACKEND_URL`` only.
+* ``frontend/.env``. ``REACT_APP_BACKEND_URL`` only.
 
 After editing a ``.env``:
 
@@ -85,7 +85,7 @@ Kubernetes ingress routes:
 Consequences:
 
 * Every backend route **must** live on the ``/api`` prefix (see
-  ``server.py`` — routes are registered on ``api_router = APIRouter(prefix="/api")``).
+  ``server.py``. Routes are registered on ``api_router = APIRouter(prefix="/api")``).
 * The frontend **must** call ``${REACT_APP_BACKEND_URL}/api/...``. If you
   drop the ``/api`` prefix, ingress will send the request to the frontend
   and you'll see the SPA HTML instead of JSON.
@@ -100,7 +100,7 @@ The Council is designed to run on **the user's own** provider accounts:
   and only falls back to server env variables if a user hasn't set their
   own. That keeps costs attributed to the right account.
 
-For a public deployment, the env-level provider keys can stay empty — users
+For a public deployment, the env-level provider keys can stay empty. Users
 add their own in the Settings dialog. Only ``EMERGENT_LLM_KEY`` is needed
 server-side for voice to work out of the box.
 
@@ -138,7 +138,7 @@ For a real production deployment (rather than the CRA dev server on
    yarn install --frozen-lockfile
    yarn build
 
-That produces ``frontend/build/`` — a static bundle you can serve from any
+That produces ``frontend/build/``. A static bundle you can serve from any
 CDN or reverse-proxy. Point your public routing rules so ``/api/*`` still
 hits the backend and everything else serves ``index.html``.
 
@@ -164,8 +164,8 @@ Deploying the docs
 
 Two options ship out of the box (full walkthrough in ``docs/DEPLOY.md``):
 
-* **GitHub Pages** — a workflow at ``.github/workflows/docs.yml`` builds the docs on every push and deploys to Pages on ``main``. One-time setup: enable **Settings → Pages → Source: GitHub Actions** in the repo.
-* **Netlify** — ``docs/netlify.toml`` is included. In Netlify: *Add new site → Import from Git → Base directory: docs*. Netlify reads the rest.
+* **GitHub Pages**. A workflow at ``.github/workflows/docs.yml`` builds the docs on every push and deploys to Pages on ``main``. One-time setup: enable **Settings → Pages → Source: GitHub Actions** in the repo.
+* **Netlify**. ``docs/netlify.toml`` is included. In Netlify: *Add new site → Import from Git → Base directory: docs*. Netlify reads the rest.
 
 The built ``docs/build/html/`` is a static site, so anywhere that serves static HTML also works (Vercel, S3+CloudFront, or alongside the frontend build under ``/docs/``).
 

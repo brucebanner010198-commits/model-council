@@ -3,7 +3,7 @@ Data Model
 
 The Council uses **MongoDB** through the async ``motor`` driver. There are
 **five collections**. All IDs are UUID-v4 strings (never Mongo
-``ObjectId`` — see the "Rules of the road" note in :doc:`configuration`).
+``ObjectId``. See the "Rules of the road" note in :doc:`configuration`).
 
 Overview
 --------
@@ -44,7 +44,7 @@ Overview
      "created_at":"2026-07-14T09:12:33+00:00"
    }
 
-* ``email`` is unique — both auth flows merge into a single record by email.
+* ``email`` is unique. Both auth flows merge into a single record by email.
 * ``user_id`` is minted server-side (``user_<12hex>``) and is the canonical
   ownership key everywhere else.
 
@@ -62,7 +62,7 @@ Overview
 
 * ``session_token`` is a 32-byte ``secrets.token_urlsafe`` value stored in
   clear (it doubles as the browser cookie value). Compromising the DB
-  would compromise active sessions — protect the DB accordingly.
+  would compromise active sessions. Protect the DB accordingly.
 * On logout, the row is deleted. Expired rows are rejected at read time
   (a periodic sweep is a good future addition but not required for
   correctness).
@@ -80,7 +80,7 @@ Overview
      "created_at": "2026-07-14T09:12:33+00:00"
    }
 
-* Only the **hash** is stored — see :doc:`authentication`.
+* Only the **hash** is stored. See :doc:`authentication`.
 * Verified tokens flip ``used=true`` atomically before user lookup, so a
   replayed link fails with 400.
 
@@ -179,7 +179,7 @@ Query patterns
   ``db.sessions.find({"owner": uid}).sort("created_at", -1)`` with
   ``turn_count`` computed in Python.
 * **Add a turn**: ``$push`` onto ``turns``. No document rewrite needed.
-* **Overwrite notes**: ``$set: {"notes": [...]}`` — the Scribe regenerates
+* **Overwrite notes**: ``$set: {"notes": [...]}``. The Scribe regenerates
   the whole list each time.
 * **Blind peer review**: reads only ``turns`` (latest per speaker) and
   writes ``review`` in one ``$set``.

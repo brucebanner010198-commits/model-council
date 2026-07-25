@@ -4,15 +4,15 @@ Authentication
 The Council supports **two sign-in methods** that resolve to the **same
 account** when they use the same email address:
 
-1. **Emergent Google OAuth** — one-click, delegated to
+1. **Emergent Google OAuth**. One-click, delegated to
    ``https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data``.
-2. **Passwordless email magic-link** — powered by Resend.
+2. **Passwordless email magic-link**. Powered by Resend.
 
 Both produce a **7-day session cookie** (or a bearer token for clients that
 can't hold third-party cookies).
 
 .. figure:: ../_static/diagrams/auth-flow.svg
-   :alt: Google OAuth flow above, magic-link flow below — both call _login_user() and merge by email.
+   :alt: Google OAuth flow above, magic-link flow below. Both call _login_user() and merge by email.
    :align: center
    :width: 100%
 
@@ -127,7 +127,7 @@ Both flows call the internal ``_login_user(email, name, picture, response)``.
 It looks up ``users`` by ``email``; if found, it refreshes ``name``/``picture``
 and reuses the ``user_id``. If not, it inserts a fresh record. Result: signing
 in with Google and later with a magic-link on the same email address gives
-you the *same* account — sessions, keys and settings are shared.
+you the *same* account. Sessions, keys and settings are shared.
 
 Session lifetime & cookies
 --------------------------
@@ -162,7 +162,7 @@ helpers stay stateless while still resolving the caller's own keys.
 .. warning::
 
    Never call those settings helpers from a background task that isn't part
-   of the current request — the ContextVar won't be set. Pass ``user_id``
+   of the current request. The ContextVar won't be set. Pass ``user_id``
    through explicitly there instead.
 
 Testing sign-in flows
