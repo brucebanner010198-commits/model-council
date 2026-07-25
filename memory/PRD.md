@@ -41,6 +41,11 @@ A "model council" of frontier models where a human is a member. Human and models
 - Per-model routing choice in Settings: `auto` (subscription→OpenRouter) | `direct` | `openrouter`. Editable native + OpenRouter model IDs per member.
 - Keys stored server-side, never returned by the API (verified, 27/27 backend tests).
 
+## Auth (multi-user)
+- **Emergent Google login** + **passwordless email magic-link** (Resend). Accounts **merge by email** (shared `_login_user`) → one account/user_id per email across both methods.
+- Magic links: single-use, 15-min expiry, sha256-hashed at rest. Needs `RESEND_API_KEY` + `SENDER_EMAIL` in backend/.env (empty → request returns 503 gracefully).
+- All /api endpoints gated (cookie or Bearer); per-user data isolation (sessions.owner, settings._id=user_id). Verified 70/70 backend tests.
+
 ## Next Tasks
-1. User adds provider subscription key(s) and/or an OpenRouter key in Settings to activate live flows.
-2. (Offered) Add authentication (JWT or Emergent Google login) before sharing — closes the cost-abuse vector properly.
+1. Add `RESEND_API_KEY` (re_...) + a verified `SENDER_EMAIL` to backend/.env to enable magic-link emails (in Resend test mode, emails only reach the account owner's verified address until a domain is verified).
+2. User adds provider subscription key(s)/OpenRouter key in Settings to activate live flows.
