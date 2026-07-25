@@ -552,9 +552,16 @@ async def auth_me(user: User = Depends(get_current_user)):
 
 @api_router.post("/auth/logout")
 async def auth_logout(request: Request, response: Response):
-    token = request.cookies.get("session_token")
+    # Accept either the cookie or an Authorization: Bearer token, so this
+    # works for both cookie-based and Bearer-based clients.
+    token = request.cookies.get("session_token") or ""
+    if not token:
+        header_auth = request.headers.get("authorization", "")
+        if header_auth.lower().startswith("bearer "):
+            token = header_auth[7:].strip()
     if token:
         await db.user_sessions.delete_one({"session_token": token})
+        logger.info(f"[auth/logout] session revoked token_prefix={token[:8]}...")
     response.delete_cookie("session_token", path="/")
     return {"ok": True}
 

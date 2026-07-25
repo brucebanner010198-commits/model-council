@@ -431,15 +431,21 @@ backend:
 
   - task: "POST /api/auth/logout - Session deletion"
     implemented: true
-    working: false
+    working: true
     file: "/app/backend/server.py"
-    stuck_count: 1
-    priority: "critical"
+    stuck_count: 0
+    priority: "high"
     needs_retesting: false
     status_history:
       - working: false
         agent: "testing"
         comment: "❌ CRITICAL BUG: Logout does NOT work with Bearer token - only works with cookies. After calling logout with Bearer token, subsequent /auth/me still returns 200 instead of 401. Root cause: logout endpoint only checks request.cookies.get('session_token'), does not check Authorization header. This breaks logout for clients using Bearer tokens (including the frontend which uses localStorage + Bearer as fallback). FIX NEEDED: Add Authorization header check similar to get_current_user() function."
+      - working: "NA"
+        agent: "main"
+        comment: "Applied fix to /app/backend/server.py auth_logout() function. Now accepts EITHER cookie (session_token) OR Authorization: Bearer header. Extracts token from header if cookie not present, deletes matching session from user_sessions collection, logs revocation with token_prefix, clears cookie, returns {ok: true} (idempotent)."
+      - working: true
+        agent: "testing"
+        comment: "✅ FIX VERIFIED - All 4 regression test paths PASSED: (Path A) Cookie-based logout works correctly - session deleted, subsequent /auth/me returns 401. NO REGRESSION. (Path B) Bearer-based logout NOW WORKS - session deleted via Authorization: Bearer header, subsequent /auth/me returns 401. BUG FIXED. (Path C) Logout with no credentials is idempotent - returns 200 {ok: true} with no server error. (Path D) Backend logs verified - found 2 entries '[auth/logout] session revoked token_prefix=...' in backend.err.log for both cookie and Bearer logouts. Observability working correctly. The critical bug is RESOLVED - logout now supports both authentication methods."
 
   - task: "Bearer token authentication mechanism"
     implemented: true
@@ -625,12 +631,11 @@ metadata:
   test_type: "username_password_auth_verification"
 
 test_plan:
-  current_focus:
-    - "POST /api/auth/logout - Fix Bearer token support"
+  current_focus: []
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
-  notes: "Username/password auth testing completed. 23/24 tests passed (95.8%). All new endpoints working correctly except POST /api/auth/logout which has a critical bug - does not support Bearer tokens. All regression tests passed. Backend structured logging and observability verified. User isolation, password security, and API key security all verified."
+  notes: "Username/password auth testing completed. 24/24 tests passed (100%). All endpoints working correctly including POST /api/auth/logout which now supports both cookie and Bearer token authentication. All regression tests passed. Backend structured logging and observability verified. User isolation, password security, and API key security all verified."
 
 agent_communication:
   - agent: "testing"
@@ -653,3 +658,7 @@ agent_communication:
     message: "New username/password auth endpoints on The Council backend at https://c55e4954-05f1-4ce6-9454-c92edf151524.preview.emergentagent.com — verify launch-ready. Test new endpoints: POST /api/auth/register, POST /api/auth/login, GET /api/auth/debug, POST /api/auth/logout. Verify both cookie-based and Bearer-based auth work. Test regression: all existing endpoints still work. Test user isolation, password rehash on login, settings security (API keys not exposed). Verify backend logs show structured logging with PII redaction."
   - agent: "testing"
     message: "USERNAME/PASSWORD AUTH TESTING COMPLETED: 23/24 tests PASSED (95.8% success rate). NEW ENDPOINTS WORKING: (1) POST /api/auth/register - ✅ Creates user with 200, returns {user_id, email, name, picture, session_token}, sets HttpOnly cookie, session_token in response matches cookie value. ✅ Returns 409 for duplicate email. ✅ Returns 422 for password < 8 chars. (2) POST /api/auth/login - ✅ Returns 200 with same response shape as register, bcrypt roundtrip works (password rehash on login verified). ✅ Returns 401 'Incorrect email or password' for both wrong password AND non-existent user (security requirement met - no user enumeration). (3) GET /api/auth/debug - ✅ Returns all required keys (server_time, origin, referer, cookie_present, cookie_prefix, bearer_present, bearer_prefix, session_found, session_expires_at, emergent_llm_key_configured, resend_configured). ✅ Truncates tokens to first 8 chars + '...' (security verified). ✅ Works unauthenticated (shows no auth) and with Bearer token (shows session found). AUTH MECHANISMS VERIFIED: ✅ Bearer token auth works (Authorization: Bearer header) for /auth/me, /council, /sessions, /settings. ✅ Cookie-based auth works (session_token cookie) for /auth/me. REGRESSION TESTS: ✅ All auth gating working (/auth/me, /council, /sessions, /settings return 401 unauthenticated). ✅ Sessions CRUD working (create, get, add message, delete). ✅ User isolation verified (user2 cannot access user1's session - returns 404). ✅ Settings write working, API key NOT exposed in GET /settings response (security verified). BACKEND LOGS VERIFIED: ✅ Structured logging working correctly in backend.err.log with entries: [auth/register] START email_prefix=...ip=..., [auth/register] new user_id=..., [auth] session cookie set: user_id=... token_prefix=..., [auth/login] START/DONE/REJECT. ✅ PII properly redacted (only email prefix, token prefix shown). CRITICAL BUG FOUND: ❌ POST /api/auth/logout does NOT work with Bearer token - only works with cookies. After calling logout with Bearer token, subsequent /auth/me still returns 200 instead of 401. Root cause: logout endpoint only checks request.cookies.get('session_token'), does not check Authorization header. This breaks logout for clients using Bearer tokens (including the frontend which uses localStorage + Bearer as fallback)."
+  - agent: "main"
+    message: "LOGOUT BUG FIX APPLIED: Modified /app/backend/server.py auth_logout() to accept EITHER cookie OR Authorization: Bearer header. Implementation: (1) First tries request.cookies.get('session_token'), (2) If no cookie, checks request.headers.get('authorization') and extracts token after 'bearer ' prefix, (3) Deletes matching session from user_sessions collection, (4) Logs '[auth/logout] session revoked token_prefix=...' for observability, (5) Clears cookie via response.delete_cookie(), (6) Returns {ok: true} (idempotent - works even with no credentials). This fixes the critical bug where Bearer-based clients (including frontend localStorage fallback) could not properly logout. Please re-verify POST /api/auth/logout with 4 test paths: (A) cookie-based logout, (B) Bearer-based logout, (C) no credentials, (D) backend log observability."
+  - agent: "testing"
+    message: "LOGOUT BUG FIX VERIFICATION COMPLETED: All 4 regression test paths PASSED (100% success rate). ✅ PATH A (cookie-based logout): Cookie logout works correctly - session deleted from DB, subsequent /auth/me returns 401. NO REGRESSION from fix. ✅ PATH B (Bearer-based logout - THE FIX): Bearer logout NOW WORKS - session deleted via Authorization: Bearer header, subsequent /auth/me returns 401. CRITICAL BUG RESOLVED. ✅ PATH C (no credentials): Logout with no cookie and no header returns 200 {ok: true} with no server error - idempotent behavior verified. ✅ PATH D (backend logs): Found 2 log entries in backend.err.log: '[auth/logout] session revoked token_prefix=DKAGyTes...' (cookie logout) and '[auth/logout] session revoked token_prefix=vKQiAgUF...' (Bearer logout). Observability working correctly. The logout endpoint now supports both authentication methods. All 24/24 auth tests now passing. Backend is production-ready."
