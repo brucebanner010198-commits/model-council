@@ -10,6 +10,8 @@ version = "1.0"
 extensions = [
     "myst_parser",
     "sphinx_copybutton",
+    "sphinx_design",
+    "sphinxcontrib.httpdomain",
 ]
 
 myst_enable_extensions = [

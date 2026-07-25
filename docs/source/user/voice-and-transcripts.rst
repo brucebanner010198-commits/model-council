@@ -34,7 +34,7 @@ Every turn is saved with the speaker's **name** and colour, in order. This is th
 permanent record of the conversation and is included in the PDF export.
 
 The Scribe's notes
------------------
+------------------
 
 A dedicated **Scribe** model watches the whole discussion and maintains a running list of
 key points — decisions, agreements, disagreements and open questions — kept **separate**
