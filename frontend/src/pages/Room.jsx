@@ -183,7 +183,7 @@ export default function Room() {
     setBusy(true);
     setDebating(true);
     const dir =
-      "This is a live council debate. Critically engage with what others have just said — challenge weak points " +
+      "This is a live council debate. Critically engage with what others have just said. Challenge weak points " +
       "by name, defend or sharpen your own view, and drive toward the strongest possible answer. Be candid and concise.";
     try {
       if (input.trim()) await sendHuman();

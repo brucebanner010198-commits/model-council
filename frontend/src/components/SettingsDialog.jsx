@@ -142,7 +142,7 @@ export const SettingsDialog = ({ open, onOpenChange, onSaved }) => {
             <div className="text-[11px] text-zinc-500 leading-relaxed flex gap-1.5">
               <Info className="h-3.5 w-3.5 mt-0.5 flex-none text-amber-500/70" />
               <span>
-                Uses your ChatGPT Plus / Pro and Claude Pro / Max quotas instead of paid API tokens. Personal-use only —
+                Uses your ChatGPT Plus / Pro and Claude Pro / Max quotas instead of paid API tokens. Personal-use only.
                 sharing subscription tokens with other users violates provider ToS.
               </span>
             </div>
@@ -174,7 +174,7 @@ export const SettingsDialog = ({ open, onOpenChange, onSaved }) => {
                 type="password"
                 placeholder={
                   subsConfigured.anthropic
-                    ? "•••• saved — paste again to replace"
+                    ? "•••• saved. Paste again to replace"
                     : "sk-ant-oat01-..."
                 }
                 value={subInputs.anthropic || ""}
@@ -210,7 +210,7 @@ export const SettingsDialog = ({ open, onOpenChange, onSaved }) => {
                 data-testid="sub-openai-input"
                 placeholder={
                   subsConfigured.openai
-                    ? "•••• saved — paste the ~/.codex/auth.json contents again to replace"
+                    ? "•••• saved. Paste the ~/.codex/auth.json contents again to replace"
                     : '{ "tokens": { "access_token": "...", "refresh_token": "...", "account_id": "..." }, "last_refresh": "..." }'
                 }
                 value={subInputs.openai || ""}
@@ -240,7 +240,7 @@ export const SettingsDialog = ({ open, onOpenChange, onSaved }) => {
                   <Input
                     data-testid={`provider-key-${p.id}`}
                     type="password"
-                    placeholder={provConfigured[p.id] ? "•••• saved — paste to replace" : `${p.label} API key`}
+                    placeholder={provConfigured[p.id] ? "•••• saved. Paste to replace" : `${p.label} API key`}
                     value={provKeys[p.id] || ""}
                     onChange={(e) => setProvKeys({ ...provKeys, [p.id]: e.target.value })}
                     className="bg-black/40 border-white/10 font-mono text-xs"
@@ -259,7 +259,7 @@ export const SettingsDialog = ({ open, onOpenChange, onSaved }) => {
               <Input
                 data-testid="openrouter-key-input"
                 type="password"
-                placeholder={orConfigured ? "•••• saved — paste to replace" : "sk-or-..."}
+                placeholder={orConfigured ? "•••• saved. Paste to replace" : "sk-or-..."}
                 value={orKey}
                 onChange={(e) => setOrKey(e.target.value)}
                 className="bg-black/40 border-white/10 font-mono text-sm"

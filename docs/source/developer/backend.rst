@@ -1,7 +1,7 @@
 Backend Walkthrough
 ===================
 
-The backend is a **single FastAPI file** — ``backend/server.py`` (~970 lines) —
+The backend is a **single FastAPI file**. ``backend/server.py`` is ~970 lines,
 plus a small pytest suite under ``backend/tests/``. Keeping it in one file is a
 deliberate choice for this MVP: everything a maintainer touches (auth, model
 routing, voice, PDF export) is discoverable in one place.
@@ -35,7 +35,7 @@ Reading top-to-bottom you'll hit these logical sections:
      - ``load_dotenv``, MongoDB client (``motor``), ``EMERGENT_LLM_KEY``,
        Resend init, FastAPI app + ``/api`` router, logger.
    * - **Provider registry**
-     - ``PROVIDERS`` dict — OpenAI-compatible base URLs for OpenAI, Anthropic,
+     - ``PROVIDERS`` dict. OpenAI-compatible base URLs for OpenAI, Anthropic,
        Gemini, DeepSeek, Moonshot.
    * - **Council roster**
      - ``COUNCIL`` list (5 members: id, name, org, colour, voice, provider,
@@ -49,7 +49,7 @@ Reading top-to-bottom you'll hit these logical sections:
        expensive endpoints. Env var ``RATE_LIMIT`` (default ``60``/min).
    * - **Settings helpers**
      - ``get_settings`` / ``get_provider_key`` / ``get_openrouter_key`` /
-       ``resolved_member`` — all read the current user's overrides from the
+       ``resolved_member``. All read the current user's overrides from the
        ``settings`` collection.
    * - **Model routing**
      - ``call_openai_compatible`` (one HTTP call for every native provider),
@@ -72,8 +72,8 @@ Reading top-to-bottom you'll hit these logical sections:
 The generate() helper
 ---------------------
 
-Every LLM completion — a member's turn, the Scribe's notes, the conclusion, a
-peer review, a synthesise answer — goes through :py:func:`generate`:
+Every LLM completion. A member's turn, the Scribe's notes, the conclusion, a
+peer review, a synthesise answer. Goes through :py:func:`generate`:
 
 .. code-block:: python
 
@@ -86,15 +86,15 @@ HTTP error only if *all* routes fail. See :doc:`architecture` for the diagram.
 .. important::
 
    When adding a new model call, **always** go through ``generate()``. Don't
-   call providers directly — you'd bypass the fallback, the ContextVar-based
+   call providers directly. You'd bypass the fallback, the ContextVar-based
    per-user key lookup, and the error normalisation.
 
 Adding a new endpoint
 ---------------------
 
 1. Define a Pydantic ``BaseModel`` for the request body (put ``max_length`` on
-   free-text fields — this is the abuse guard).
-2. Register the route on ``api_router`` (never on ``app`` directly — you'd miss
+   free-text fields. This is the abuse guard).
+2. Register the route on ``api_router`` (never on ``app`` directly. You'd miss
    the ``/api`` prefix).
 3. Add ``user: User = Depends(get_current_user)`` unless it's a truly public
    route (only ``/api/`` and the auth exchange endpoints qualify today).
@@ -128,14 +128,14 @@ Then:
 Voice pipeline
 --------------
 
-* **TTS** — :class:`emergentintegrations.llm.openai.OpenAITextToSpeech` with
+* **TTS**. :class:`emergentintegrations.llm.openai.OpenAITextToSpeech` with
   ``model="tts-1"`` and the member's ``voice``. The endpoint returns
   ``audio_base64`` and the browser plays it.
-* **STT** — :class:`emergentintegrations.llm.openai.OpenAISpeechToText` with
+* **STT**. :class:`emergentintegrations.llm.openai.OpenAISpeechToText` with
   ``whisper-1``. The endpoint enforces a **25 MB** upload cap and a whitelist
   of audio MIME types (see ``ALLOWED_AUDIO``).
 
-Both use the ``EMERGENT_LLM_KEY`` env variable — no per-user key is required
+Both use the ``EMERGENT_LLM_KEY`` env variable. No per-user key is required
 for voice.
 
 PDF export

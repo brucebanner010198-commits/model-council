@@ -1,7 +1,7 @@
 Configuration
 =============
 
-All configuration comes from environment variables — nothing is hardcoded.
+All configuration comes from environment variables. Nothing is hardcoded.
 
 Backend (``backend/.env``)
 --------------------------
@@ -18,7 +18,7 @@ Backend (``backend/.env``)
      - MongoDB connection string.
    * - ``DB_NAME``
      - yes
-     - Database name. Do not change casually — data is keyed to it.
+     - Database name. Do not change casually. Data is keyed to it.
    * - ``CORS_ORIGINS``
      - no
      - Comma-separated origins (the app uses an origin-echoing regex with credentials).

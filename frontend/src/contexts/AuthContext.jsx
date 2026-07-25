@@ -6,7 +6,7 @@ const AUTH_URL = "https://auth.emergentagent.com/";
 
 const AuthContext = createContext(null);
 
-// Small helper — prefix log lines so they're easy to spot in devtools.
+// Small helper. Prefix log lines so they're easy to spot in devtools.
 const log = (...args) => console.info("[auth]", ...args);
 
 // Emergent normally puts the session_id in the URL *fragment* (#session_id=…)
@@ -35,7 +35,7 @@ export const AuthProvider = ({ children }) => {
   const [authError, setAuthError] = useState(null);
 
   // Guard against React 18 StrictMode double-invocation. The Emergent OAuth
-  // session_id and magic-link tokens are single-use — running bootstrap twice
+  // session_id and magic-link tokens are single-use. Running bootstrap twice
   // makes the second call 401 and can race with the first, nulling the user.
   const bootstrapped = useRef(false);
 

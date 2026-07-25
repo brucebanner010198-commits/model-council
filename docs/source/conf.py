@@ -29,6 +29,10 @@ source_suffix = {
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
+# Disable smartquotes so we never auto-convert -- to en/em dashes or
+# straight quotes to curly ones in the rendered HTML.
+smartquotes = False
+
 # -- HTML output -------------------------------------------------------------
 html_theme = "furo"
 html_title = "The Council"

@@ -38,12 +38,12 @@ Where things live
 Read next
 ---------
 
-* :doc:`architecture` — request flow and model routing.
-* :doc:`configuration` — environment variables.
-* :doc:`backend` / :doc:`frontend` — code walkthroughs.
-* :doc:`api-reference` — every endpoint.
-* :doc:`authentication` — session + magic-link internals.
-* :doc:`data-model` — MongoDB collections.
-* :doc:`testing` — how the suite is structured and run.
-* :doc:`deployment` — running under supervisor and going live.
-* :doc:`contributing` — conventions and guardrails.
+* :doc:`architecture`. Request flow and model routing.
+* :doc:`configuration`. Environment variables.
+* :doc:`backend` / :doc:`frontend`. Code walkthroughs.
+* :doc:`api-reference`. Every endpoint.
+* :doc:`authentication`. Session + magic-link internals.
+* :doc:`data-model`. MongoDB collections.
+* :doc:`testing`. How the suite is structured and run.
+* :doc:`deployment`. Running under supervisor and going live.
+* :doc:`contributing`. Conventions and guardrails.

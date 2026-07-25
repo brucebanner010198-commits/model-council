@@ -71,7 +71,7 @@ export default function Login() {
           <span className="text-zinc-500">frontier minds.</span>
         </h1>
         <p className="mt-5 text-base leading-relaxed text-zinc-400">
-          A live, spoken roundtable where GPT, Claude, Gemini, DeepSeek and Kimi debate your ideas — and you hold the chair.
+          A live, spoken roundtable where GPT, Claude, Gemini, DeepSeek and Kimi debate your ideas. You hold the chair.
         </p>
 
         {authError && (
