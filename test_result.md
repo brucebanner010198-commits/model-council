@@ -101,3 +101,267 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: "Launch-readiness smoke test for The Council FastAPI backend"
+
+backend:
+  - task: "Public API endpoint"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/ returns 200 with correct message 'AI Model Council API'"
+
+  - task: "Auth gating - /auth/me"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/auth/me without credentials returns 401 Unauthorized as expected"
+
+  - task: "Auth gating - /council"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/council without credentials returns 401 Unauthorized as expected"
+
+  - task: "Auth gating - /sessions"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/sessions without credentials returns 401 Unauthorized as expected"
+
+  - task: "Auth gating - /settings"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/settings without credentials returns 401 Unauthorized as expected"
+
+  - task: "Bearer token authentication"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Seeded test users and sessions in MongoDB. Bearer token authentication working correctly for all authenticated endpoints"
+
+  - task: "GET /api/auth/me with Bearer token"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Returns 200 with correct user data (user_id, email, name, picture)"
+
+  - task: "GET /api/council with Bearer token"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Returns 200 with 5 council members, notetaker, 5 providers with configuration status, openrouter_configured=false, any_provider_configured=false"
+
+  - task: "GET /api/settings with Bearer token"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Returns 200 with openrouter_configured and providers_configured object showing all 5 providers as unconfigured"
+
+  - task: "POST /api/sessions - Create session"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Creates session successfully with all 5 participants (gpt, claude, gemini, deepseek, kimi), returns session with id, owner, participant_ids, empty turns[], empty notes[], status='active'"
+
+  - task: "GET /api/sessions - List sessions"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Returns 200 with list of sessions including newly created session"
+
+  - task: "GET /api/sessions/{id} - Get specific session"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Returns 200 with correct session data"
+
+  - task: "POST /api/sessions/{id}/message - Add message"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Successfully adds human message to session, returns turn with correct text and speaker_id='human'"
+
+  - task: "DELETE /api/sessions/{id} - Delete session"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Returns 200 on delete. Subsequent GET returns 404 as expected. Idempotent delete on non-existent session returns 200"
+
+  - task: "POST /api/settings - Update personas and routing"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Successfully updates personas and routing settings. GET /api/settings confirms changes persisted correctly"
+
+  - task: "POST /api/settings - Update OpenRouter key"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Successfully stores OpenRouter API key. GET /api/settings shows openrouter_configured=true. SECURITY VERIFIED: API key is NOT exposed in response body"
+
+  - task: "POST /api/auth/magic/request - Magic link without RESEND_API_KEY"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Returns 503 Service Unavailable as expected when RESEND_API_KEY is not configured"
+
+  - task: "Auth rejection with invalid token"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/auth/me with invalid Bearer token returns 401 Unauthorized as expected"
+
+  - task: "User isolation and data security"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "User 2 cannot access User 1's session - returns 404 as expected. Proper multi-tenant isolation verified"
+
+frontend:
+  - task: "Frontend testing"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/App.js"
+    stuck_count: 0
+    priority: "low"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "testing"
+        comment: "Frontend testing not performed as per smoke test requirements - only backend API testing requested"
+
+metadata:
+  created_by: "testing_agent"
+  version: "1.0"
+  test_sequence: 1
+  run_ui: false
+  test_date: "2025-01-23"
+  test_type: "launch_readiness_smoke_test"
+
+test_plan:
+  current_focus:
+    - "All backend smoke tests completed successfully"
+  stuck_tasks: []
+  test_all: true
+  test_priority: "high_first"
+  notes: "Comprehensive smoke test covering all public endpoints, auth gating, authenticated CRUD operations, settings management, security, and user isolation"
+
+agent_communication:
+  - agent: "testing"
+    message: "Launch-readiness smoke test completed successfully. All 29 backend tests passed with 0 failures. Tested: public endpoints, auth gating (401s), Bearer token authentication, sessions CRUD, settings management, magic-link error handling, auth rejection, and user isolation. Security verified: API keys not exposed in responses. Multi-tenant isolation working correctly. Backend is ready for launch."

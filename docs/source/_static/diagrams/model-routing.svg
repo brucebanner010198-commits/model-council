@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" font-family="'Inter','Segoe UI',sans-serif" font-size="13">
+  <defs>
+    <marker id="m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+    </marker>
+    <style>
+      .box{fill:#0a0a0c;stroke:#27272a;stroke-width:1.5;rx:10;ry:10}
+      .box-ok{fill:#0f766e14;stroke:#34d399}
+      .box-fb{fill:#f59e0b14;stroke:#f59e0b}
+      .box-fail{fill:#ef444414;stroke:#ef4444}
+      .lbl{fill:#e4e4e7;font-weight:600}
+      .sub{fill:#a1a1aa;font-size:11px}
+      .tag{fill:#a1a1aa;font-size:11px;font-family:'JetBrains Mono',monospace}
+      .flow{stroke:#94a3b8;stroke-width:1.5;fill:none}
+    </style>
+  </defs>
+  <rect width="900" height="420" fill="#050505"/>
+  <text x="450" y="32" text-anchor="middle" fill="#e4e4e7" font-size="16" font-weight="600">generate() — per-member routing with OpenRouter fallback</text>
+
+  <!-- Input -->
+  <rect class="box" x="40" y="70" width="200" height="70"/>
+  <text class="lbl" x="140" y="98" text-anchor="middle">Request for member M</text>
+  <text class="sub" x="140" y="120" text-anchor="middle">member.routing ∈ {auto, direct, openrouter}</text>
+
+  <!-- Decision -->
+  <rect class="box" x="290" y="55" width="290" height="100"/>
+  <text class="lbl" x="435" y="80" text-anchor="middle">Route order</text>
+  <text class="tag" x="435" y="102" text-anchor="middle">auto  → [direct, openrouter] if key, else [openrouter]</text>
+  <text class="tag" x="435" y="120" text-anchor="middle">direct  → [direct, openrouter]</text>
+  <text class="tag" x="435" y="138" text-anchor="middle">openrouter  → [openrouter]</text>
+
+  <path class="flow" d="M240 105 L290 105" marker-end="url(#m)"/>
+
+  <!-- Native call -->
+  <rect class="box box-ok" x="630" y="55" width="230" height="70"/>
+  <text class="lbl" x="745" y="80" text-anchor="middle">Native provider (OpenAI-compat)</text>
+  <text class="tag" x="745" y="102" text-anchor="middle">OpenAI / Anthropic / Gemini / DS / MS</text>
+
+  <!-- Fallback call -->
+  <rect class="box box-fb" x="630" y="150" width="230" height="70"/>
+  <text class="lbl" x="745" y="175" text-anchor="middle">OpenRouter fallback</text>
+  <text class="tag" x="745" y="197" text-anchor="middle">openrouter.ai/api/v1/chat/completions</text>
+
+  <path class="flow" d="M580 90 L630 90" marker-end="url(#m)"/>
+  <path class="flow" d="M580 130 L630 185" marker-end="url(#m)"/>
+
+  <!-- Success / fail paths -->
+  <rect class="box box-ok" x="290" y="200" width="290" height="70"/>
+  <text class="lbl" x="435" y="225" text-anchor="middle">200 — return assistant text</text>
+  <text class="sub" x="435" y="247" text-anchor="middle">logged: “answered via provider / OpenRouter”</text>
+
+  <rect class="box box-fail" x="290" y="290" width="290" height="70"/>
+  <text class="lbl" x="435" y="315" text-anchor="middle">All routes failed → HTTP 502</text>
+  <text class="sub" x="435" y="337" text-anchor="middle">“Add a subscription key or OpenRouter key in Settings.”</text>
+
+  <path class="flow" d="M745 125 L745 200" marker-end="url(#m)"/>
+  <text class="tag" x="760" y="165">on error</text>
+
+  <path class="flow" d="M580 250 L580 220" marker-end="url(#m)"/>
+  <path class="flow" d="M580 300 L580 340" marker-end="url(#m)" stroke="#ef4444"/>
+</svg>

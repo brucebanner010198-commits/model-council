@@ -3,6 +3,13 @@ Running a Council
 
 Once inside the chamber, you drive the discussion. Here are all the ways to do that.
 
+.. figure:: ../_static/screenshots/chamber.jpg
+   :alt: The council chamber — video tiles per model, live transcript, Scribe's notes and a control dock.
+   :align: center
+   :width: 100%
+
+   The chamber layout: five model tiles + your own on the left, transcript top-right, Scribe's notes bottom-right, and the control dock along the bottom.
+
 The chamber layout
 ------------------
 

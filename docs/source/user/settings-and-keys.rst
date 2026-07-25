@@ -5,6 +5,13 @@ The Council runs each model on **your own accounts**, so you stay in control of 
 cost. Open **Configure** (top-right) to manage this. All keys are stored securely and are
 **never shown back** to you or anyone else.
 
+.. figure:: ../_static/screenshots/settings.jpg
+   :alt: Council Configuration dialog — provider API keys, OpenRouter fallback, per-member routing.
+   :align: center
+   :width: 100%
+
+   Council Configuration: paste provider or OpenRouter keys, pick per-member routing and models, and add optional personas.
+
 Two ways to power the models
 ----------------------------
 

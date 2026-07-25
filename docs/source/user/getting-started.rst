@@ -3,6 +3,13 @@ Getting Started
 
 Your first council in three minutes.
 
+.. figure:: ../_static/screenshots/dashboard.jpg
+   :alt: The Council dashboard — convene a session, see the standing council, browse your archive.
+   :align: center
+   :width: 100%
+
+   The dashboard after sign-in: convene a session, see the standing council, browse your archive.
+
 1. Sign in
 ----------
 

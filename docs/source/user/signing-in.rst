@@ -4,6 +4,13 @@ Signing In
 The Council is multi-user: everyone gets their own private sessions, notes and keys.
 There are two ways to sign in, and they **merge by email** into a single account.
 
+.. figure:: ../_static/screenshots/login.jpg
+   :alt: The Council sign-in page — Sign in with Google, or "Email me a link".
+   :align: center
+   :width: 100%
+
+   The sign-in page — pick Google or paste an email for a magic-link.
+
 Sign in with Google
 --------------------
 

@@ -101,6 +101,8 @@ make html
 # open docs/build/html/index.html
 ```
 
+Once you push to GitHub, the workflow at [`.github/workflows/docs.yml`](.github/workflows/docs.yml) builds the docs on every push and, from `main`, publishes them to **GitHub Pages** automatically. See [`docs/DEPLOY.md`](./docs/DEPLOY.md) for setup and Netlify/Vercel alternatives.
+
 ---
 
 ## 🗂️ Project Structure

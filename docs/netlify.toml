@@ -1,0 +1,15 @@
+# Netlify build config for The Council docs (Sphinx)
+# Netlify auto-detects and runs this. To use:
+# 1. Connect this repo to Netlify
+# 2. Set base directory: docs
+# 3. Netlify will read this file for build & publish paths
+
+[build]
+  base    = "docs"
+  command = "pip install -r requirements.txt && sphinx-build -b html source build/html"
+  publish = "docs/build/html"
+
+[build.environment]
+  PYTHON_VERSION = "3.12"
+
+# SPA-style fallback isn't needed — Sphinx outputs static HTML files.

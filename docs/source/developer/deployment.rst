@@ -162,9 +162,12 @@ For live-reloading while writing docs:
 Deploying the docs
 ~~~~~~~~~~~~~~~~~~
 
-The built ``docs/build/html/`` folder is a static site. Push it to any host
-that serves static files (GitHub Pages, Netlify, Vercel, S3+CloudFront, or
-alongside the frontend build under ``/docs/``).
+Two options ship out of the box (full walkthrough in ``docs/DEPLOY.md``):
+
+* **GitHub Pages** — a workflow at ``.github/workflows/docs.yml`` builds the docs on every push and deploys to Pages on ``main``. One-time setup: enable **Settings → Pages → Source: GitHub Actions** in the repo.
+* **Netlify** — ``docs/netlify.toml`` is included. In Netlify: *Add new site → Import from Git → Base directory: docs*. Netlify reads the rest.
+
+The built ``docs/build/html/`` is a static site, so anywhere that serves static HTML also works (Vercel, S3+CloudFront, or alongside the frontend build under ``/docs/``).
 
 Health checklist
 ----------------

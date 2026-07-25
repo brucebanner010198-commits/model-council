@@ -11,6 +11,13 @@ account** when they use the same email address:
 Both produce a **7-day session cookie** (or a bearer token for clients that
 can't hold third-party cookies).
 
+.. figure:: ../_static/diagrams/auth-flow.svg
+   :alt: Google OAuth flow above, magic-link flow below — both call _login_user() and merge by email.
+   :align: center
+   :width: 100%
+
+   Both flows converge in ``_login_user()`` which merges accounts by email.
+
 Data model
 ----------
 

@@ -1,6 +1,13 @@
 Architecture
 ============
 
+.. figure:: ../_static/diagrams/architecture.svg
+   :alt: The Council architecture — browser → ingress → FastAPI → MongoDB / providers / voice / Resend.
+   :align: center
+   :width: 100%
+
+   High-level architecture. The browser talks only to the backend; the backend talks to Mongo, providers, voice and email.
+
 High-level flow
 ---------------
 
@@ -22,6 +29,13 @@ High-level flow
 
 Model routing (the core idea)
 ------------------------------
+
+.. figure:: ../_static/diagrams/model-routing.svg
+   :alt: generate() routing — pick native provider or OpenRouter, fall back on error, or return 502.
+   :align: center
+   :width: 100%
+
+   The single ``generate()`` helper that every LLM call goes through.
 
 Every completion goes through a single ``generate(member, system, user, max_tokens)``
 helper that implements **per-model, subscription-first routing with OpenRouter fallback**:
