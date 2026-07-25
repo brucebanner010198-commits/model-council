@@ -1,0 +1,28 @@
+{
+  "summary": "Iteration 3 verified the four security hardening fixes AND regression. Backend: 21/21 pytest tests pass (added test_message_length_cap [422 at 8001 chars, 200 at normal], test_synthesize_question_length_cap [422 at 4001 chars], test_tts_length_cap [422 at 8001 chars], test_stt_rejects_non_audio [415 for text/plain], test_stt_accepts_small_mp3 [not 415 for audio/mpeg], test_cors_council_ok [/api/council 200 with Origin header], test_expensive_endpoint_rate_limit_burst [confirmed 429 with body 'Rate limit exceeded...' via concurrent burst on /sessions/{id}/review]). All prior regression tests still pass (council, settings, sessions CRUD, message, respond bad-member 400, /respond & /synthesize graceful 400 without OpenRouter key, review requires two speakers, PDF export returns application/pdf with %PDF magic). Frontend smoke: home loads with full 5-member roster, Convene the Council dialog opens, Enter the chamber navigates to /session/<uuid>, ALL dock data-testids present & visible (synthesize-btn, auto-debate-btn, rounds-select, open-floor-btn, round-table-btn, review-btn, notes-btn, conclude-btn, export-btn, mic-btn, send-btn, mute-toggle, leave-btn, message-input); rounds-select cycled 2r→3r; peer-review with 0 turns surfaces 'two members must speak' path; auto-debate without OpenRouter key surfaces the 'OpenRouter API key not configured' toast (graceful); PDF export API returns 200 application/pdf (1918 bytes, %PDF magic). No console errors of note.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Optional (carryover from iter 2): add data-testid=\"convene-btn\" on the Home CTA — currently tests still fall back to get_by_text('Convene a council').",
+    "Optional: expose rate-limit headers (e.g. X-RateLimit-Remaining, Retry-After) so clients can back off gracefully instead of retrying blindly."
+  ],
+  "critical_code_review_comments": [
+    "Rate limit is in-memory per-pod (defaultdict deque). Behind the K8s ingress with multiple replicas, effective limit per client IP = 60 * pod_count. Testing had to fire >200 concurrent requests to saturate every pod's bucket. Not a security bug but the documented '60/min/IP' is aspirational rather than strict — consider Redis-backed limiter or an ingress-level rate limit for production.",
+    "Rate limiting keys on request.client.host, which behind an ingress is typically the ingress/proxy IP, so ALL external clients share one bucket per pod. If real client IP is needed, honour X-Forwarded-For (with proper trust config).",
+    "server.py:392 STT content-type check does `audio.content_type.split(';')[0]` but only truthy-guards `audio.content_type`; a client that omits Content-Type entirely bypasses the 415 check. Consider rejecting missing content-type or defaulting to a strict allow-list check.",
+    "server.py:399 STT reads the whole upload into an in-memory bytes buffer (`data += chunk`) rather than streaming to the temp file — 25 MB in memory per concurrent upload is fine but streaming straight to disk would be safer under load.",
+    "TTSRequest/HumanMessage/SynthesizeRequest use Field max_length — great — but RespondRequest.directive cap is only enforced on request body validation; there is still `text[:4000]` slicing inside /tts/respond that silently truncates model output for TTS. Consider explicit user-facing feedback when input is truncated by max_length.",
+    "server.py:701 CORSMiddleware `allow_origins` defaults to '*' when CORS_ORIGINS is unset; combined with allow_credentials=False this is safe, but production should pin explicit origins.",
+    "Reportlab imports remain lazy inside export_pdf (carryover note from iter 2).",
+    "HTTP-Referer at server.py:146 is still hardcoded to the preview host (carryover)."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (21/21)", "frontend": "100% (smoke: home + convene + dock + graceful-error + PDF)"},
+  "test_credentials": "None (single-user, no auth). OpenRouter key intentionally absent — negative paths verified. EMERGENT_LLM_KEY present, TTS/STT verified.",
+  "seed_data_creation": "Ephemeral sessions created & deleted per test: TEST_should_we_ship_agents, TEST_new_features_session, TEST_bad, TEST_len, TEST_ratelimit, plus frontend TEST_iter3_security_check / TEST_iter3_dock_check (all deleted).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Rate-limit test is flakiness-sensitive because the app is fronted by an ingress with multiple pods and per-pod in-memory buckets. The test now bursts up to 3 rounds of 200 concurrent /sessions/{id}/review calls (fast 400 short-circuit that still passes rate_limit Depends) to guarantee every pod's bucket exceeds 60. If you need to re-run other expensive-endpoint tests immediately after, sleep ~65s to let buckets drain. All security fixes verified via backend_test.py — see test_message_length_cap, test_synthesize_question_length_cap, test_tts_length_cap, test_stt_rejects_non_audio, test_stt_accepts_small_mp3, test_cors_council_ok, test_expensive_endpoint_rate_limit_burst.",
+  "rca of the issue": "N/A — no bugs found in this iteration. Only flakiness observation on rate-limit test explained above."
+}

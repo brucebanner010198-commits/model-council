@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File
+from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Request, Depends
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -63,6 +63,31 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
+# ---------------- Basic in-memory rate limiting (cost-abuse protection) ----------------
+from collections import defaultdict, deque
+import time
+
+RATE_LIMIT = int(os.environ.get("RATE_LIMIT", "60"))      # requests per window
+RATE_WINDOW = 60                                          # seconds
+_rate_buckets = defaultdict(deque)
+MAX_AUDIO_BYTES = 25 * 1024 * 1024                        # 25 MB (Whisper ceiling)
+ALLOWED_AUDIO = {
+    "audio/webm", "audio/ogg", "audio/mpeg", "audio/mp3", "audio/wav",
+    "audio/x-wav", "audio/mp4", "audio/m4a", "audio/x-m4a", "application/octet-stream",
+}
+
+
+def rate_limit(request: Request):
+    ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    dq = _rate_buckets[ip]
+    while dq and dq[0] < now - RATE_WINDOW:
+        dq.popleft()
+    if len(dq) >= RATE_LIMIT:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please slow down and try again shortly.")
+    dq.append(now)
+
+
 # ---------------- Models ----------------
 class SettingsUpdate(BaseModel):
     openrouter_key: Optional[str] = None
@@ -77,12 +102,12 @@ class SessionCreate(BaseModel):
 
 
 class HumanMessage(BaseModel):
-    text: str
+    text: str = Field(..., max_length=8000)
 
 
 class RespondRequest(BaseModel):
     model_id: str
-    directive: Optional[str] = None
+    directive: Optional[str] = Field(None, max_length=2000)
 
 
 class ConcludeRequest(BaseModel):
@@ -125,7 +150,8 @@ async def call_openrouter(model: str, messages: list, max_tokens: int = 500):
     async with httpx.AsyncClient(timeout=120) as hc:
         r = await hc.post(f"{OPENROUTER_URL}/chat/completions", headers=headers, json=payload)
     if r.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"OpenRouter error ({model}): {r.text[:300]}")
+        logger.warning(f"OpenRouter error {r.status_code} for {model}: {r.text[:500]}")
+        raise HTTPException(status_code=502, detail=f"OpenRouter error for {model} (HTTP {r.status_code}). Check the model ID in Settings.")
     data = r.json()
     return data["choices"][0]["message"]["content"].strip()
 
@@ -267,7 +293,7 @@ async def add_message(sid: str, body: HumanMessage):
 
 
 @api_router.post("/sessions/{sid}/respond")
-async def respond(sid: str, body: RespondRequest):
+async def respond(sid: str, body: RespondRequest, _rl: None = Depends(rate_limit)):
     doc = await db.sessions.find_one({"id": sid}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -309,7 +335,7 @@ async def respond(sid: str, body: RespondRequest):
 
 
 @api_router.post("/sessions/{sid}/notes")
-async def update_notes(sid: str):
+async def update_notes(sid: str, _rl: None = Depends(rate_limit)):
     doc = await db.sessions.find_one({"id": sid}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -335,7 +361,7 @@ async def update_notes(sid: str):
 
 
 @api_router.post("/sessions/{sid}/conclude")
-async def conclude(sid: str, body: ConcludeRequest):
+async def conclude(sid: str, body: ConcludeRequest, _rl: None = Depends(rate_limit)):
     doc = await db.sessions.find_one({"id": sid}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -360,11 +386,22 @@ async def conclude(sid: str, body: ConcludeRequest):
 
 
 @api_router.post("/stt")
-async def speech_to_text(audio: UploadFile = File(...)):
+async def speech_to_text(audio: UploadFile = File(...), _rl: None = Depends(rate_limit)):
     if not EMERGENT_LLM_KEY:
         raise HTTPException(status_code=400, detail="Voice key not configured")
-    data = await audio.read()
-    suffix = os.path.splitext(audio.filename or "rec.webm")[1] or ".webm"
+    if audio.content_type and audio.content_type.split(";")[0] not in ALLOWED_AUDIO:
+        raise HTTPException(status_code=415, detail="Unsupported audio type")
+    data = b""
+    while True:
+        chunk = await audio.read(1024 * 1024)
+        if not chunk:
+            break
+        data += chunk
+        if len(data) > MAX_AUDIO_BYTES:
+            raise HTTPException(status_code=413, detail="Audio too large (max 25 MB)")
+    suffix = os.path.splitext(os.path.basename(audio.filename or "rec.webm"))[1].lower()
+    if suffix not in {".webm", ".ogg", ".mp3", ".mpeg", ".mpga", ".wav", ".mp4", ".m4a", ".flac"}:
+        suffix = ".webm"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(data)
         tmp_path = tmp.name
@@ -475,7 +512,7 @@ async def _compute_review(participants, turns):
 
 
 @api_router.post("/sessions/{sid}/review")
-async def peer_review(sid: str):
+async def peer_review(sid: str, _rl: None = Depends(rate_limit)):
     doc = await db.sessions.find_one({"id": sid}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -487,11 +524,11 @@ async def peer_review(sid: str):
 
 class SynthesizeRequest(BaseModel):
     chairman_id: str
-    question: Optional[str] = None
+    question: Optional[str] = Field(None, max_length=4000)
 
 
 @api_router.post("/sessions/{sid}/synthesize")
-async def synthesize(sid: str, body: SynthesizeRequest):
+async def synthesize(sid: str, body: SynthesizeRequest, _rl: None = Depends(rate_limit)):
     doc = await db.sessions.find_one({"id": sid}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -567,13 +604,13 @@ async def synthesize(sid: str, body: SynthesizeRequest):
 
 
 class TTSRequest(BaseModel):
-    text: str
+    text: str = Field(..., max_length=8000)
     member_id: Optional[str] = None
     voice: Optional[str] = None
 
 
 @api_router.post("/tts")
-async def synth_voice(body: TTSRequest):
+async def synth_voice(body: TTSRequest, _rl: None = Depends(rate_limit)):
     if not EMERGENT_LLM_KEY:
         raise HTTPException(status_code=400, detail="Voice key not configured")
     voice = body.voice
@@ -661,7 +698,7 @@ app.include_router(api_router)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
     allow_methods=["*"],
     allow_headers=["*"],

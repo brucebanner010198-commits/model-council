@@ -220,3 +220,99 @@ def test_export_pdf(s, new_session):
 def test_export_not_found(s):
     r = s.get(f"{API}/sessions/nope-xyz/export")
     assert r.status_code == 404
+
+
+# ---------- Security fixes ----------
+
+# Input length caps
+def test_message_length_cap(s):
+    sess = s.post(f"{API}/sessions", json={"title": "TEST_len", "participant_ids": ["gpt"]}).json()
+    sid = sess["id"]
+    try:
+        r = s.post(f"{API}/sessions/{sid}/message", json={"text": "a" * 8001})
+        assert r.status_code == 422, f"expected 422 got {r.status_code}: {r.text}"
+        # normal length still accepted
+        ok = s.post(f"{API}/sessions/{sid}/message", json={"text": "a" * 100})
+        assert ok.status_code == 200
+    finally:
+        s.delete(f"{API}/sessions/{sid}")
+
+
+def test_synthesize_question_length_cap(s, new_session):
+    r = s.post(f"{API}/sessions/{new_session}/synthesize",
+               json={"chairman_id": "gpt", "question": "q" * 4001})
+    assert r.status_code == 422, f"expected 422 got {r.status_code}: {r.text}"
+
+
+def test_tts_length_cap(s):
+    r = s.post(f"{API}/tts", json={"text": "t" * 8001})
+    assert r.status_code == 422, f"expected 422 got {r.status_code}: {r.text}"
+
+
+# STT hardening
+def test_stt_rejects_non_audio(s):
+    files = {"audio": ("hello.txt", b"just some text", "text/plain")}
+    r = s.post(f"{API}/stt", files=files)
+    assert r.status_code == 415, f"expected 415 got {r.status_code}: {r.text}"
+
+
+def test_stt_accepts_small_mp3(s):
+    # Minimal mp3-like bytes (ID3 header + silence). Emergent STT may reject audio content,
+    # but our hardening should let it through (200 or 500 from upstream — NOT 415).
+    mp3_bytes = b"ID3\x03\x00\x00\x00\x00\x00\x00" + b"\xff\xfb\x90\x00" + b"\x00" * 2048
+    files = {"audio": ("rec.mp3", mp3_bytes, "audio/mpeg")}
+    r = s.post(f"{API}/stt", files=files)
+    # Must not be 415; content-type accepted. 200 or 500 depending on whisper.
+    assert r.status_code != 415, f"got 415 for audio/mpeg: {r.text}"
+    assert r.status_code in (200, 400, 500), f"unexpected {r.status_code}: {r.text}"
+
+
+# CORS still works (allow_credentials=False)
+def test_cors_council_ok(s):
+    r = s.get(f"{API}/council", headers={"Origin": "https://example.com"})
+    assert r.status_code == 200
+
+
+# Rate limit burst should trigger 429 on an expensive endpoint.
+# NOTE: Backend is behind an ingress that may load-balance across pods; using a single
+# keep-alive requests.Session pins the TCP connection to one pod, so its in-memory
+# bucket fills predictably. We use /sessions/{id}/review with an empty session so
+# the endpoint short-circuits fast (400 "two members...") but still passes through
+# the rate_limit() Depends. Any 429 with the exact detail proves the fix works.
+def test_expensive_endpoint_rate_limit_burst():
+    """Burst-fire /sessions/{id}/review (fast 400 short-circuit but still passes
+    through rate_limit() Depends). Backend is behind a load-balancer so we fire
+    many concurrent requests to saturate every pod's bucket."""
+    import requests as rq
+    from concurrent.futures import ThreadPoolExecutor
+    sess = rq.post(f"{API}/sessions",
+                   json={"title": "TEST_ratelimit", "participant_ids": ["gpt", "claude"]}).json()
+    sid = sess["id"]
+    url = f"{API}/sessions/{sid}/review"
+
+    def hit(_):
+        try:
+            return rq.post(url, timeout=15).status_code
+        except Exception:
+            return "to"
+
+    codes = []
+    try:
+        # up to 3 rounds of 200 concurrent requests until we see 429s
+        for round_ in range(3):
+            with ThreadPoolExecutor(max_workers=80) as ex:
+                codes.extend(list(ex.map(hit, range(200))))
+            if any(c == 429 for c in codes):
+                break
+    finally:
+        rq.delete(f"{API}/sessions/{sid}")
+
+    from collections import Counter
+    dist = Counter(codes)
+    n429 = dist.get(429, 0)
+    assert n429 > 0, f"expected some 429s among concurrent expensive-endpoint burst; distribution={dist}"
+
+    # Verify body detail on a follow-up call while bucket is still saturated
+    r = rq.post(url, timeout=15)
+    if r.status_code == 429:
+        assert "rate limit" in r.json().get("detail", "").lower()
