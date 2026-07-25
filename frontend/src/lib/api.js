@@ -1,6 +1,24 @@
 import axios from "axios";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+// Resolve the backend base URL. In this Kubernetes environment the ingress
+// always routes `/api/*` on whatever preview URL the frontend is served from
+// to the same backend pod, so a same-origin request always works. If the
+// build-time REACT_APP_BACKEND_URL matches the current browser origin, use it
+// as-is; otherwise fall back to same-origin so a rotated preview URL doesn't
+// wedge every request behind a cross-origin CORS-with-credentials block.
+const _ENV_URL = process.env.REACT_APP_BACKEND_URL || "";
+const _resolveBase = () => {
+  if (typeof window === "undefined") return _ENV_URL;
+  const origin = window.location.origin;
+  if (!_ENV_URL) return origin;
+  try {
+    const envHost = new URL(_ENV_URL).origin;
+    return envHost === origin ? _ENV_URL : origin;
+  } catch {
+    return origin;
+  }
+};
+const BACKEND_URL = _resolveBase();
 export const API = `${BACKEND_URL}/api`;
 
 // ---- Bearer-token fallback -------------------------------------------------
