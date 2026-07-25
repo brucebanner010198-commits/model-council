@@ -1,0 +1,29 @@
+{
+  "summary": "Full backend + frontend testing of AI Model Council. 8/8 pytest backend tests pass covering /api/council, /api/settings persistence, sessions CRUD, human message append, /respond with missing OpenRouter key returns 400, /respond with unknown model returns 400, session-not-found 404s, and /stt (returns 200 with EMERGENT_LLM_KEY configured). Frontend Playwright E2E verified: home loads with hero, 5-member roster, Configure button; settings dialog opens from Configure and from 'Add OpenRouter key', saves and persists (active badge + persona value reappear on reopen); Convene flow works — session-title-input, pick-<id> chips present for all 5 members, start-session-btn navigates to /session/<uuid>, room renders with all controls (mic-btn, message-input, send-btn, open-floor-btn, round-table-btn, notes-btn, conclude-btn, mute-toggle, leave-btn); sending message with no OpenRouter key shows toast 'OpenRouter API key not configured. Add it in Settings.' and UI does not crash; conclude-btn opens drafter picker listing all 5 draft-with-<id> options; leave returns to home, session appears in Session Archive, delete-session-<id> removes it with success toast.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dialogs (SettingsDialog, Setup, Conclude)", "issues": ["Radix DialogContent a11y warning: 'Missing Description or aria-describedby'. Add DialogDescription or aria-describedby to setup/conclude Dialogs (SettingsDialog already has one)."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Optional a11y: add DialogDescription (or aria-describedby) to the 'Convene the Council' setup dialog in Home.jsx and the 'Assign the conclusion drafter' dialog in Room.jsx to silence Radix warnings.",
+    "Minor UX: when /respond returns 400 due to missing OpenRouter key, sendHuman() has already pushed the human turn to the session — behaviour is correct, but consider auto-opening SettingsDialog on this specific error."
+  ],
+  "critical_code_review_comments": [
+    "server.py call_openrouter hardcodes HTTP-Referer to preview URL — acceptable but ideally read from an env var.",
+    "server.py resolved_member uses MEMBERS_BY_ID[mid] without KeyError guard — safe because callers validate, but add explicit check in resolved_member for defense-in-depth.",
+    "Frontend Room.jsx roundTable() catches all errors silently (catch (_) {}) so if notes/respond fail after human message, no user feedback beyond the initial toast — acceptable.",
+    "Files are within size limits; no DRY violations; env vars used correctly; MongoDB _id excluded via projection."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "None required (single-user app, no auth). OpenRouter key intentionally not configured for negative testing.",
+  "seed_data_creation": "Test session 'TEST_should_we_ship_agents' created and deleted per test; settings persona TEST_persona_from_ui written for member 'gpt' via UI — main agent may want to reset gpt persona via POST /api/settings {\"personas\": {\"gpt\": \"\"}}.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend pytest suite at /app/backend/tests/backend_test.py covers all major endpoints. Convene→Room navigation is confirmed working (screenshot shows successful navigation to /session/<uuid> and full room render). Graceful 400 handling for missing OpenRouter key is confirmed both API-side and toast-side."
+}
