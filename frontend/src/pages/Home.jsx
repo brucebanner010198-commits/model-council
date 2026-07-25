@@ -82,11 +82,11 @@ export default function Home() {
             </Button>
             {council && (
               <div className="flex items-center gap-2 text-xs font-mono">
-                {council.openrouter_configured ? (
-                  <span className="flex items-center gap-1.5 text-emerald-400"><CheckCircle2 className="h-3.5 w-3.5" /> OpenRouter linked</span>
+                {(council.any_provider_configured || council.openrouter_configured) ? (
+                  <span className="flex items-center gap-1.5 text-emerald-400"><CheckCircle2 className="h-3.5 w-3.5" /> models linked</span>
                 ) : (
                   <button onClick={() => setSettingsOpen(true)} className="flex items-center gap-1.5 text-amber-400">
-                    <AlertTriangle className="h-3.5 w-3.5" /> Add OpenRouter key
+                    <AlertTriangle className="h-3.5 w-3.5" /> Add subscription or OpenRouter key
                   </button>
                 )}
               </div>

@@ -1,0 +1,28 @@
+{
+  "summary": "Iteration 4 verified the NEW provider-subscription feature (native OpenAI-compatible providers + per-model OpenRouter fallback) plus full regression. Backend: 27 pytest tests (21 pre-existing + 6 new in test_providers.py) — 27 passed / 0 failed. New checks: /api/council exposes providers[] {id,label,configured} + openrouter_configured + any_provider_configured + members carry provider/native_model/routing; POST /api/settings with provider_keys {openai:'sk-test-fake-...'} persists, GET /api/settings & /api/council & POST response NEVER contain the raw key text (verified via full-text substring assertions), routing/native_models persist; routing 'openrouter' with no OR key returns graceful 400 mentioning OpenRouter; routing 'direct' with a fake OpenAI key attempts direct, fails, falls back to OR, and returns graceful 400/502 (no 500); routing 'auto' with no keys returns graceful 400/502. Regression: council roster (5 + scribe), sessions CRUD, message length cap 422 @8001, synth question cap 422 @4001, TTS text cap 422 @8001, STT 415 on non-audio & non-415 on audio/mpeg, CORS, expensive-endpoint rate-limit burst still yields 429, PDF export still returns application/pdf with %PDF magic (>500 bytes), review 'two members must speak' guard. Frontend smoke: home shows amber 'Add subscription or OpenRouter key' when unset; open-settings-btn opens dialog containing provider-key-openai/anthropic/gemini/deepseek/moonshot, openrouter-key-input, route-gpt-auto/direct/openrouter, native-model-gpt, model-id-gpt, persona-gpt, notetaker-model, save-settings-btn — all present. Save works, toast 'Settings saved' shown; reopening shows 'active' badge and '•••• saved — paste to replace' placeholder. Home status line flips to green 'models linked'. Raw key never appears in DOM. Convene → chamber navigates and full dock renders (synthesize-btn, auto-debate-btn, review-btn, conclude-btn, export-btn, mic-btn, send-btn).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_providers.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py generate() catches HTTPException in the route loop and continues to next route — for pref='direct' with fake key, direct raises ProviderError (Exception) so it falls back to openrouter; but if direct raised HTTPException it would still try openrouter due to `continue`. This is intended behavior (per-model fallback on error) but note that a legitimate downstream 401/403 from provider will be silently retried on OpenRouter. Consider surfacing which route ultimately failed in the error detail for observability.",
+    "SettingsDialog auto-fills the OpenRouter model input with the default per-member `mem.model` on every open. If the user has customized a native model but never touched model-id-<id>, the default OpenRouter id is persisted verbatim on Save. Not a bug but means POST /settings will always include 'models' with defaults — mildly inefficient and could accidentally overwrite a server-side override that wasn't returned to the client (currently backend does return s.get('models',{}) so parity is fine).",
+    "provider_keys stored as plain strings in the settings doc. Since the backend never returns them, this is only a data-at-rest concern; consider Fernet/KMS encryption for the DB field.",
+    "Routing options and provider labels are duplicated between backend PROVIDERS map and frontend ROUTES list — kept in sync manually. Would benefit from an /api/meta endpoint that returns both to avoid drift.",
+    "The 'openrouter_configured' field on /api/settings response body is included but 'openrouter_key' or 'provider_keys' fields are correctly OMITTED — assertion passes. Good."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_providers.py"
+  ],
+  "success_rate": {"backend": "100% (27/27)", "frontend": "100% (settings dialog wiring + home status line + convene + dock all verified)"},
+  "test_credentials": "None (single-user, no auth). Used fake provider key 'sk-test-fake-...' for direct-route negative-path verification; no real OpenRouter/provider keys used.",
+  "seed_data_creation": "Ephemeral: TEST_routing, TEST_new_features_session, TEST_iter4_dock, plus various from backend_test.py — all deleted after run. Fake provider_keys cleared from DB (verified with pymongo dump: remaining settings has empty maps, no provider_keys/openrouter_key).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "New backend tests live in /app/backend/tests/test_providers.py. The cleanup uses pymongo to $unset provider_keys/openrouter_key from db.settings after the run. To reset state manually run the python one-liner in this iteration's cleanup section. Provider list is {openai,anthropic,gemini,deepseek,moonshot}. Note: MONGO_URL in /app/backend/.env is quoted, so strip quotes when parsing manually. Rate-limit burst test remains in backend_test.py — sleep ~65s before other expensive tests if run consecutively.",
+  "rca of the issue": "N/A — no bugs found. New provider-subscription + per-model routing + fallback wiring all correct. Keys never leaked in any response body (verified by both explicit field checks and raw substring searches against response text)."
+}

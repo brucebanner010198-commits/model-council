@@ -36,26 +36,36 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-# ---------------- Council roster (defaults, model ids editable via settings) ----------------
+# ---------------- Native provider endpoints (OpenAI-compatible) ----------------
+PROVIDERS = {
+    "openai": {"label": "OpenAI", "base": "https://api.openai.com/v1"},
+    "anthropic": {"label": "Anthropic", "base": "https://api.anthropic.com/v1"},
+    "gemini": {"label": "Google Gemini", "base": "https://generativelanguage.googleapis.com/v1beta/openai"},
+    "deepseek": {"label": "DeepSeek", "base": "https://api.deepseek.com/v1"},
+    "moonshot": {"label": "Moonshot (Kimi)", "base": "https://api.moonshot.ai/v1"},
+}
+
+# ---------------- Council roster (defaults; model ids & routing editable via settings) ----------------
 COUNCIL = [
     {"id": "gpt", "name": "GPT-5.6", "org": "OpenAI", "country": "US", "open": False,
      "specialty": "Reasoning & Mathematics", "color": "#10B981", "voice": "onyx",
-     "model": "openai/gpt-5.6"},
+     "provider": "openai", "native_model": "gpt-5.6", "model": "openai/gpt-5.6"},
     {"id": "claude", "name": "Claude Opus 5", "org": "Anthropic", "country": "US", "open": False,
      "specialty": "Coding & Language", "color": "#F59E0B", "voice": "sage",
-     "model": "anthropic/claude-opus-4.6"},
+     "provider": "anthropic", "native_model": "claude-opus-4-6", "model": "anthropic/claude-opus-4.6"},
     {"id": "gemini", "name": "Gemini 3.1 Pro", "org": "Google", "country": "US", "open": False,
      "specialty": "Instruction Following", "color": "#8B5CF6", "voice": "nova",
-     "model": "google/gemini-3-pro-preview"},
+     "provider": "gemini", "native_model": "gemini-3-pro-preview", "model": "google/gemini-3-pro-preview"},
     {"id": "deepseek", "name": "DeepSeek V4 Pro", "org": "DeepSeek", "country": "China", "open": True,
      "specialty": "Math & Open Reasoning", "color": "#EF4444", "voice": "echo",
-     "model": "deepseek/deepseek-chat"},
+     "provider": "deepseek", "native_model": "deepseek-chat", "model": "deepseek/deepseek-chat"},
     {"id": "kimi", "name": "Kimi K3", "org": "Moonshot AI", "country": "China", "open": True,
      "specialty": "Open-Weight Reasoning", "color": "#3B82F6", "voice": "fable",
-     "model": "moonshotai/kimi-k2"},
+     "provider": "moonshot", "native_model": "kimi-k2", "model": "moonshotai/kimi-k2"},
 ]
-NOTETAKER = {"id": "scribe", "name": "Scribe", "org": "Council Secretariat",
-             "color": "#a1a1aa", "model": "openai/gpt-4o-mini"}
+NOTETAKER = {"id": "scribe", "name": "Scribe", "org": "Council Secretariat", "color": "#a1a1aa",
+             "provider": "openai", "native_model": "gpt-4o-mini", "model": "openai/gpt-4o-mini",
+             "voice": "alloy", "specialty": "Note-taking", "routing": "auto", "persona": ""}
 MEMBERS_BY_ID = {m["id"]: m for m in COUNCIL}
 
 
@@ -91,7 +101,10 @@ def rate_limit(request: Request):
 # ---------------- Models ----------------
 class SettingsUpdate(BaseModel):
     openrouter_key: Optional[str] = None
-    models: Optional[dict] = None          # {member_id: model_id}
+    provider_keys: Optional[dict] = None   # {provider_id: api_key}
+    models: Optional[dict] = None          # {member_id: openrouter_model_id}
+    native_models: Optional[dict] = None   # {member_id: native_model_name}
+    routing: Optional[dict] = None         # {member_id: "auto"|"direct"|"openrouter"}
     notetaker_model: Optional[str] = None
     personas: Optional[dict] = None        # {member_id: persona_text}
 
@@ -125,15 +138,82 @@ async def get_openrouter_key():
     return s.get("openrouter_key") or os.environ.get("OPENROUTER_API_KEY") or ""
 
 
+async def get_provider_key(provider_id: str):
+    s = await get_settings()
+    pk = s.get("provider_keys", {}) or {}
+    return pk.get(provider_id) or os.environ.get(f"{provider_id.upper()}_API_KEY") or ""
+
+
 async def resolved_member(mid: str):
     base = dict(MEMBERS_BY_ID[mid])
     s = await get_settings()
-    overrides = s.get("models", {})
-    personas = s.get("personas", {})
-    if mid in overrides and overrides[mid]:
+    overrides = s.get("models", {}) or {}
+    native = s.get("native_models", {}) or {}
+    routing = s.get("routing", {}) or {}
+    personas = s.get("personas", {}) or {}
+    if overrides.get(mid):
         base["model"] = overrides[mid]
+    if native.get(mid):
+        base["native_model"] = native[mid]
+    base["routing"] = routing.get(mid, "auto")
     base["persona"] = personas.get(mid, "")
     return base
+
+
+class ProviderError(Exception):
+    pass
+
+
+async def call_openai_compatible(base: str, key: str, model: str, messages: list, max_tokens: int):
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    payload = {"model": model, "messages": messages, "max_tokens": max_tokens}
+    async with httpx.AsyncClient(timeout=120) as hc:
+        r = await hc.post(f"{base}/chat/completions", headers=headers, json=payload)
+    if r.status_code != 200:
+        raise ProviderError(f"HTTP {r.status_code}: {r.text[:200]}")
+    return r.json()["choices"][0]["message"]["content"].strip()
+
+
+async def generate(member: dict, system: str, user: str, max_tokens: int = 500):
+    """Route a member's completion: prefer native subscription/provider, fall back to OpenRouter per-model."""
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    pref = member.get("routing", "auto")
+    provider = member.get("provider")
+    prov_key = await get_provider_key(provider) if provider else ""
+
+    if pref == "openrouter":
+        routes = ["openrouter"]
+    elif pref == "direct":
+        routes = ["direct", "openrouter"]
+    else:  # auto
+        routes = ["direct", "openrouter"] if prov_key else ["openrouter"]
+
+    last_err = None
+    for route in routes:
+        try:
+            if route == "direct":
+                if not prov_key:
+                    raise ProviderError(f"No API key for {provider}")
+                base = PROVIDERS[provider]["base"]
+                text = await call_openai_compatible(base, prov_key, member["native_model"], messages, max_tokens)
+                logger.info(f"{member.get('name')} answered via {provider} (direct)")
+                return text
+            else:
+                text = await call_openrouter(member["model"], messages, max_tokens)
+                logger.info(f"{member.get('name')} answered via OpenRouter fallback")
+                return text
+        except HTTPException as e:
+            last_err = e
+            continue
+        except Exception as e:
+            last_err = e
+            logger.warning(f"Route {route} failed for {member.get('name')}: {e}")
+            continue
+
+    if isinstance(last_err, HTTPException):
+        raise last_err
+    raise HTTPException(status_code=502,
+                        detail=f"No provider available for {member.get('name')}. Add a subscription key or an OpenRouter key in Settings.")
 
 
 async def call_openrouter(model: str, messages: list, max_tokens: int = 500):
@@ -186,16 +266,27 @@ async def root():
     return {"message": "AI Model Council API"}
 
 
+async def _provider_status():
+    status = {}
+    for pid in PROVIDERS:
+        status[pid] = bool(await get_provider_key(pid))
+    return status
+
+
 @api_router.get("/council")
 async def council():
     members = [await resolved_member(m["id"]) for m in COUNCIL]
     s = await get_settings()
     nt = dict(NOTETAKER)
-    nt["model"] = s.get("notetaker_model") or NOTETAKER["model"]
+    nt["native_model"] = s.get("notetaker_model") or NOTETAKER["native_model"]
+    provider_status = await _provider_status()
     return {
         "members": members,
         "notetaker": nt,
+        "providers": [{"id": pid, "label": PROVIDERS[pid]["label"], "configured": provider_status[pid]}
+                      for pid in PROVIDERS],
         "openrouter_configured": bool(await get_openrouter_key()),
+        "any_provider_configured": any(provider_status.values()),
     }
 
 
@@ -204,9 +295,12 @@ async def read_settings():
     s = await get_settings()
     return {
         "openrouter_configured": bool(await get_openrouter_key()),
+        "providers_configured": await _provider_status(),
         "models": s.get("models", {}),
+        "native_models": s.get("native_models", {}),
+        "routing": s.get("routing", {}),
         "personas": s.get("personas", {}),
-        "notetaker_model": s.get("notetaker_model") or NOTETAKER["model"],
+        "notetaker_model": s.get("notetaker_model") or NOTETAKER["native_model"],
     }
 
 
@@ -215,14 +309,26 @@ async def update_settings(body: SettingsUpdate):
     update = {}
     if body.openrouter_key is not None:
         update["openrouter_key"] = body.openrouter_key.strip()
+    if body.provider_keys is not None:
+        s = await get_settings()
+        pk = dict(s.get("provider_keys", {}) or {})
+        for k, v in body.provider_keys.items():
+            if k in PROVIDERS and v and v.strip():
+                pk[k] = v.strip()
+        update["provider_keys"] = pk
     if body.models is not None:
         update["models"] = body.models
+    if body.native_models is not None:
+        update["native_models"] = body.native_models
+    if body.routing is not None:
+        update["routing"] = body.routing
     if body.notetaker_model is not None:
         update["notetaker_model"] = body.notetaker_model
     if body.personas is not None:
         update["personas"] = body.personas
     await db.settings.update_one({"_id": "global"}, {"$set": update}, upsert=True)
-    return {"ok": True, "openrouter_configured": bool(await get_openrouter_key())}
+    return {"ok": True, "openrouter_configured": bool(await get_openrouter_key()),
+            "providers_configured": await _provider_status()}
 
 
 @api_router.get("/openrouter/models")
@@ -307,10 +413,7 @@ async def respond(sid: str, body: RespondRequest, _rl: None = Depends(rate_limit
     directive = body.directive or f"Give your next contribution to the discussion as {member['name']}."
     user_prompt = f"Here is the council discussion so far:\n\n{convo}\n\n{directive}"
 
-    text = await call_openrouter(member["model"], [
-        {"role": "system", "content": system},
-        {"role": "user", "content": user_prompt},
-    ], max_tokens=400)
+    text = await generate(member, system, user_prompt, max_tokens=400)
 
     # Voice
     audio_b64 = None
@@ -344,16 +447,16 @@ async def update_notes(sid: str, _rl: None = Depends(rate_limit)):
     if not doc["turns"]:
         return {"notes": []}
     s = await get_settings()
-    nt_model = s.get("notetaker_model") or NOTETAKER["model"]
+    nt = dict(NOTETAKER)
+    nt["native_model"] = s.get("notetaker_model") or NOTETAKER["native_model"]
+    nt["model"] = s.get("notetaker_model") if (s.get("notetaker_model") or "").startswith(("openai/", "google/", "anthropic/", "deepseek/", "moonshotai/")) else NOTETAKER["model"]
+    nt["routing"] = "auto"
     system = (
         "You are Scribe, the council's dedicated note-taker. Read the discussion and extract the key points: "
         "important claims, decisions, agreements, disagreements and open questions. "
         "Return a concise list of short takeaways, ONE per line, no numbering, no markdown symbols, no preamble."
     )
-    text = await call_openrouter(nt_model, [
-        {"role": "system", "content": system},
-        {"role": "user", "content": f"Discussion:\n\n{convo}"},
-    ], max_tokens=500)
+    text = await generate(nt, system, f"Discussion:\n\n{convo}", max_tokens=500)
     points = [ln.strip("-•* \t") for ln in text.split("\n") if ln.strip()]
     notes = [{"id": str(uuid.uuid4()), "text": p, "ts": now_iso()} for p in points]
     await db.sessions.update_one({"id": sid}, {"$set": {"notes": notes}})
@@ -376,10 +479,7 @@ async def conclude(sid: str, body: ConcludeRequest, _rl: None = Depends(rate_lim
         "decision or recommendation, the reasoning, and any important caveats or next steps. This is a written "
         "document (not spoken), so use clear paragraphs. Be decisive and insightful."
     )
-    text = await call_openrouter(member["model"], [
-        {"role": "system", "content": system},
-        {"role": "user", "content": f"Council discussion:\n\n{convo}\n\nDraft the final conclusion now."},
-    ], max_tokens=900)
+    text = await generate(member, system, f"Council discussion:\n\n{convo}\n\nDraft the final conclusion now.", max_tokens=900)
     conclusion = {"text": text, "drafter_id": member["id"], "drafter_name": member["name"], "ts": now_iso()}
     await db.sessions.update_one({"id": sid}, {"$set": {"conclusion": conclusion, "status": "concluded"}})
     return conclusion
@@ -472,10 +572,7 @@ async def _compute_review(participants, turns):
             f"\"most_convincing\": \"<one letter>\"}}."
         )
         try:
-            raw = await call_openrouter(reviewer["model"], [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ], max_tokens=200)
+            raw = await generate(reviewer, system, user, max_tokens=200)
             return _parse_json(raw)
         except Exception as e:
             logger.warning(f"Review failed for {reviewer['name']}: {e}")
@@ -553,10 +650,7 @@ async def synthesize(sid: str, body: SynthesizeRequest, _rl: None = Depends(rate
         if member.get("persona"):
             system += f" Persona: {member['persona']}"
         try:
-            txt = await call_openrouter(member["model"], [
-                {"role": "system", "content": system},
-                {"role": "user", "content": f"Question: {question}"},
-            ], max_tokens=600)
+            txt = await generate(member, system, f"Question: {question}", max_tokens=600)
         except HTTPException:
             raise
         except Exception as e:
@@ -588,10 +682,7 @@ async def synthesize(sid: str, body: SynthesizeRequest, _rl: None = Depends(rate
         "Be clear and decisive."
     )
     chair_user = f"Question: {question}\n\nIndependent answers:\n\n{labeled}{rank_summary}\n\nWrite the synthesised council answer now."
-    synth_text = await call_openrouter(chair["model"], [
-        {"role": "system", "content": chair_system},
-        {"role": "user", "content": chair_user},
-    ], max_tokens=1100)
+    synth_text = await generate(chair, chair_system, chair_user, max_tokens=1100)
 
     synthesis = {"question": question, "text": synth_text, "chairman_id": chair["id"],
                  "chairman_name": chair["name"], "chairman_color": chair["color"], "ts": now_iso()}
