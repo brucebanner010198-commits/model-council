@@ -1,22 +1,23 @@
-The Council — Documentation
-============================
+The Council
+===========
 
-**The Council** is a live spoken roundtable of five frontier AI models. GPT, Claude,
-Gemini, DeepSeek and Kimi debate your ideas out loud, challenge each other, take notes,
-cross-review the arguments, and draft a final verdict. You hold the chair.
+Documentation for The Council. A live spoken roundtable of five frontier AI models
+(GPT, Claude, Gemini, DeepSeek, Kimi) that debate your ideas out loud, challenge each
+other, take notes, cross-review the arguments, and draft a final verdict. You hold the
+chair.
 
-This documentation is written for two audiences. Pick your path:
+This documentation is written for two audiences.
 
 .. grid:: 2
 
-   .. grid-item-card:: 👤 For Users
+   .. grid-item-card:: For Users
       :link: user/index
       :link-type: doc
 
       Sign in, convene a council, speak to the models, run debates, synthesize a
       single answer, and export verdicts.
 
-   .. grid-item-card:: 🛠️ For Developers & Maintainers
+   .. grid-item-card:: For Developers & Maintainers
       :link: developer/index
       :link-type: doc
 
@@ -32,7 +33,7 @@ This documentation is written for two audiences. Pick your path:
 
 .. toctree::
    :maxdepth: 2
-   :caption: 👤 User Guide
+   :caption: User Guide
 
    user/index
    user/getting-started
@@ -45,7 +46,7 @@ This documentation is written for two audiences. Pick your path:
 
 .. toctree::
    :maxdepth: 2
-   :caption: 🛠️ Developer & Maintainer Guide
+   :caption: Developer & Maintainer Guide
 
    developer/index
    developer/architecture

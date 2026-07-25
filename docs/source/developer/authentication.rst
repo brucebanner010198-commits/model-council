@@ -59,7 +59,7 @@ Every protected route depends on this function:
        token = request.cookies.get("session_token") \
                or request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
        # look up user_sessions; verify expiry; load user
-       _current_user_id.set(user["user_id"])   # <— fuels per-user settings
+       _current_user_id.set(user["user_id"])   # feeds per-user settings
        return User(...)
 
 Two mechanisms are supported so that:

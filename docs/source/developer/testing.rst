@@ -102,4 +102,4 @@ Local vs. supervised
   backend`` picks up code changes; hot-reload is on.
 * **Local**: run ``uvicorn server:app --reload --port 8001`` from
   ``backend/`` **only** for a one-off local check. Never leave a rogue
-  ``uvicorn`` running. Supervisor is authoritative.
+  ``uvicorn`` running. Supervisor manages the process.
