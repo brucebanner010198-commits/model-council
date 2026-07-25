@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
-import { exchangeSession, getMe, logout as apiLogout } from "../lib/api";
+import { exchangeSession, verifyMagicLink, getMe, logout as apiLogout } from "../lib/api";
 
 const AuthContext = createContext(null);
 
@@ -10,14 +10,13 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   const bootstrap = useCallback(async () => {
-    // 1) Handle redirect from Emergent auth: session_id lives in the URL fragment
     const hash = window.location.hash || "";
-    const match = hash.match(/session_id=([^&]+)/);
-    if (match) {
+    // 1a) Emergent Google redirect: session_id in fragment
+    const gMatch = hash.match(/session_id=([^&]+)/);
+    if (gMatch) {
       try {
-        const u = await exchangeSession(decodeURIComponent(match[1]));
+        const u = await exchangeSession(decodeURIComponent(gMatch[1]));
         setUser(u);
-        // strip the fragment without reloading
         window.history.replaceState(null, "", window.location.pathname + window.location.search);
         setLoading(false);
         return;
@@ -25,7 +24,20 @@ export const AuthProvider = ({ children }) => {
         window.history.replaceState(null, "", window.location.pathname + window.location.search);
       }
     }
-    // 2) Otherwise try to restore an existing session
+    // 1b) Magic link redirect: magic token in fragment
+    const mMatch = hash.match(/magic=([^&]+)/);
+    if (mMatch) {
+      try {
+        const u = await verifyMagicLink(decodeURIComponent(mMatch[1]));
+        setUser(u);
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+        setLoading(false);
+        return;
+      } catch (e) {
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      }
+    }
+    // 2) Restore existing session
     try {
       const u = await getMe();
       setUser(u);

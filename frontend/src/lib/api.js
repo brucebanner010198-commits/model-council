@@ -19,6 +19,8 @@ client.interceptors.response.use(
 
 
 export const exchangeSession = (session_id) => client.post("/auth/session", { session_id }).then((r) => r.data);
+export const requestMagicLink = (email) => client.post("/auth/magic/request", { email }).then((r) => r.data);
+export const verifyMagicLink = (token) => client.post("/auth/magic/verify", { token }).then((r) => r.data);
 export const getMe = () => client.get("/auth/me").then((r) => r.data);
 export const logout = () => client.post("/auth/logout").then((r) => r.data);
 

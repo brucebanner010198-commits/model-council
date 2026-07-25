@@ -6,9 +6,11 @@ import os
 import logging
 import asyncio
 import contextvars
+import secrets
+import hashlib
 import tempfile
 from pathlib import Path
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
 import uuid
 import json
@@ -16,6 +18,7 @@ import random
 from io import BytesIO
 from datetime import datetime, timezone, timedelta
 import httpx
+import resend
 from fastapi.responses import StreamingResponse
 
 from emergentintegrations.llm.openai import OpenAITextToSpeech, OpenAISpeechToText
@@ -28,6 +31,9 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
+RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
+SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'onboarding@resend.dev')
+resend.api_key = RESEND_API_KEY
 OPENROUTER_URL = "https://openrouter.ai/api/v1"
 
 app = FastAPI()
@@ -88,6 +94,14 @@ class User(BaseModel):
 
 class SessionExchange(BaseModel):
     session_id: str
+
+
+class MagicRequest(BaseModel):
+    email: EmailStr
+
+
+class MagicVerify(BaseModel):
+    token: str = Field(..., max_length=256)
 
 
 async def get_current_user(request: Request) -> User:
@@ -312,6 +326,32 @@ async def root():
     return {"message": "AI Model Council API"}
 
 
+async def _login_user(email: str, name: str, picture: str, response: Response):
+    existing = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing:
+        user_id = existing["user_id"]
+        upd = {}
+        if name:
+            upd["name"] = name
+        if picture:
+            upd["picture"] = picture
+        if upd:
+            await db.users.update_one({"user_id": user_id}, {"$set": upd})
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        await db.users.insert_one({"user_id": user_id, "email": email,
+                                   "name": name or email.split("@")[0], "picture": picture or "",
+                                   "created_at": now_iso()})
+    session_token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    await db.user_sessions.insert_one({"user_id": user_id, "session_token": session_token,
+                                       "expires_at": expires_at.isoformat(), "created_at": now_iso()})
+    response.set_cookie("session_token", session_token, httponly=True, secure=True,
+                        samesite="none", path="/", max_age=7 * 24 * 3600)
+    u = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    return {"user_id": user_id, "email": email, "name": u.get("name", ""), "picture": u.get("picture", "")}
+
+
 @api_router.post("/auth/session")
 async def auth_session(body: SessionExchange, response: Response):
     async with httpx.AsyncClient(timeout=30) as hc:
@@ -322,24 +362,61 @@ async def auth_session(body: SessionExchange, response: Response):
     email = data.get("email")
     if not email:
         raise HTTPException(status_code=401, detail="No email in session data")
-    existing = await db.users.find_one({"email": email}, {"_id": 0})
-    if existing:
-        user_id = existing["user_id"]
-        await db.users.update_one({"user_id": user_id},
-                                  {"$set": {"name": data.get("name", ""), "picture": data.get("picture", "")}})
-    else:
-        user_id = f"user_{uuid.uuid4().hex[:12]}"
-        await db.users.insert_one({"user_id": user_id, "email": email, "name": data.get("name", ""),
-                                   "picture": data.get("picture", ""), "created_at": now_iso()})
-    session_token = data["session_token"]
-    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-    await db.user_sessions.update_one(
-        {"session_token": session_token},
-        {"$set": {"user_id": user_id, "session_token": session_token,
-                  "expires_at": expires_at.isoformat(), "created_at": now_iso()}}, upsert=True)
-    response.set_cookie("session_token", session_token, httponly=True, secure=True,
-                        samesite="none", path="/", max_age=7 * 24 * 3600)
-    return {"user_id": user_id, "email": email, "name": data.get("name", ""), "picture": data.get("picture", "")}
+    return await _login_user(email, data.get("name", ""), data.get("picture", ""), response)
+
+
+@api_router.post("/auth/magic/request")
+async def magic_request(body: MagicRequest, request: Request, _rl: None = Depends(rate_limit)):
+    email = body.email.strip().lower()
+    if not RESEND_API_KEY:
+        raise HTTPException(status_code=503, detail="Email sign-in is not configured yet. Add a RESEND_API_KEY.")
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+    await db.magic_links.insert_one({
+        "email": email, "token_hash": token_hash, "used": False,
+        "expires_at": expires_at.isoformat(), "created_at": now_iso(),
+    })
+    origin = request.headers.get("origin") or os.environ.get("APP_BASE_URL", "")
+    link = f"{origin}/login#magic={token}"
+    html = f"""
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#050505;padding:40px 0;font-family:Arial,Helvetica,sans-serif;">
+      <tr><td align="center">
+        <table width="440" cellpadding="0" cellspacing="0" style="background:#0a0a0c;border:1px solid #1f1f22;border-radius:16px;padding:36px;">
+          <tr><td style="color:#a1a1aa;font-size:12px;letter-spacing:3px;text-transform:uppercase;">The Council</td></tr>
+          <tr><td style="color:#ffffff;font-size:24px;font-weight:600;padding-top:14px;">Your sign-in link</td></tr>
+          <tr><td style="color:#a1a1aa;font-size:14px;line-height:22px;padding-top:12px;">Click below to enter the council chamber. This link works once and expires in 15 minutes.</td></tr>
+          <tr><td style="padding-top:26px;">
+            <a href="{link}" style="display:inline-block;background:#ffffff;color:#050505;text-decoration:none;font-size:15px;font-weight:600;padding:13px 26px;border-radius:999px;">Sign in to The Council</a>
+          </td></tr>
+          <tr><td style="color:#52525b;font-size:12px;padding-top:24px;">If you didn't request this, you can safely ignore this email.</td></tr>
+        </table>
+      </td></tr>
+    </table>"""
+    params = {"from": SENDER_EMAIL, "to": [email], "subject": "Your sign-in link to The Council", "html": html}
+    try:
+        await asyncio.to_thread(resend.Emails.send, params)
+    except Exception as e:
+        logger.error(f"Magic link email failed: {e}")
+        raise HTTPException(status_code=502, detail="Could not send the sign-in email. Please try again.")
+    return {"ok": True}
+
+
+@api_router.post("/auth/magic/verify")
+async def magic_verify(body: MagicVerify, response: Response):
+    token_hash = hashlib.sha256(body.token.strip().encode()).hexdigest()
+    doc = await db.magic_links.find_one({"token_hash": token_hash})
+    if not doc or doc.get("used"):
+        raise HTTPException(status_code=400, detail="This sign-in link is invalid or already used.")
+    exp = doc["expires_at"]
+    if isinstance(exp, str):
+        exp = datetime.fromisoformat(exp)
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    if exp < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="This sign-in link has expired. Please request a new one.")
+    await db.magic_links.update_one({"_id": doc["_id"]}, {"$set": {"used": True}})
+    return await _login_user(doc["email"], "", "", response)
 
 
 @api_router.get("/auth/me")
